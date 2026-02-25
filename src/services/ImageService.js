@@ -346,9 +346,15 @@ export class ImageService {
 
     /**
      * 渲染管理后台 HTML 界面
-     * @returns {Response}
+     * @returns {Promise<Response>}
      */
-    renderDashboard() {
+    /**
+     * 渲染管理后台 HTML 界面
+     * @returns {Promise<Response>}
+     */
+    async renderDashboard() {
+        const yearOptions = await this._generateYearOptions();
+
         const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -639,7 +645,7 @@ export class ImageService {
                         <label for="year-select">年份筛选:</label>
                         <select id="year-select" onchange="resetAndLoad()">
                             <option value="">全部</option>
-                            ${this._generateYearOptions()}
+                            ${yearOptions}
                         </select>
                     </div>
                 </div>
@@ -819,19 +825,41 @@ export class ImageService {
     }
 
     /**
-     * 生成年份下拉选项
+     * 生成年份下拉选项 (从 R2 动态查询)
      * @private
      */
-    _generateYearOptions() {
-        const currentYear = new Date().getFullYear();
-        let options = '';
-        // 生成从今年开始往回数 5 年的选项
-        for (let i = 0; i < 5; i++) {
-            const year = currentYear - i;
-            options += `<option value="${year}">${year}年</option>`;
+    async _generateYearOptions() {
+        try {
+            // 使用 delimiter '/' 配合 prefix 'i/' 发现目录 (即年份)
+            const listed = await this.bucket.list({
+                prefix: 'i/',
+                delimiter: '/'
+            });
+
+            // commonPrefixes 包含形式如 'i/2024/', 'i/2025/' 的项
+            const years = (listed.commonPrefixes || [])
+                .map(p => {
+                    const match = p.match(/i\/(\d{4})\//);
+                    return match ? match[1] : null;
+                })
+                .filter(Boolean)
+                .sort((a, b) => b - a); // 倒序排列
+
+            // 如果没有发现年份，默认返回当前年份作为兜底
+            if (years.length === 0) {
+                const currentYear = new Date().getFullYear().toString();
+                return `<option value="${currentYear}">${currentYear}年</option>`;
+            }
+
+            return years.map(y => `<option value="${y}">${y}年</option>`).join('');
+        } catch (error) {
+            console.error('动态发现年份失败:', error);
+            // 兜底方案
+            const year = new Date().getFullYear();
+            return `<option value="${year}">${year}年</option>`;
         }
-        return options;
     }
+
 
     /**
      * 获取 R2 中的图片列表

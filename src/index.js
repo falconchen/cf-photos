@@ -21,7 +21,7 @@ export default {
 
         // 首页：展示管理后台界面
         if (path === '/' && request.method === 'GET') {
-            return imageService.renderDashboard();
+            return await imageService.renderDashboard();
         }
 
         // 处理自动上传路由
