@@ -316,6 +316,35 @@ export class ImageService {
     }
 
     /**
+     * 删除 R2 中的图片
+     * @param {string} key 图片在 R2 中的键值
+     * @returns {Promise<Response>}
+     */
+    async deleteImage(key) {
+        try {
+            await this.bucket.delete(key);
+            return new Response(JSON.stringify({
+                result: 'success',
+                code: 200,
+                message: '图片已成功删除'
+            }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' }
+            });
+        } catch (error) {
+            console.error(`ImageService.deleteImage 运行出错: ${error.message}`);
+            return new Response(JSON.stringify({
+                result: 'error',
+                code: 500,
+                message: error.message
+            }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' }
+            });
+        }
+    }
+
+    /**
      * 渲染管理后台 HTML 界面
      * @returns {Response}
      */
@@ -336,6 +365,7 @@ export class ImageService {
             --text: #f8fafc;
             --text-dim: #94a3b8;
             --danger: #ef4444;
+            --success: #10b981;
         }
 
         * {
@@ -447,6 +477,7 @@ export class ImageService {
             overflow: hidden;
             border: 1px solid rgba(255, 255, 255, 0.05);
             transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
         }
 
         .image-card:hover {
@@ -459,6 +490,7 @@ export class ImageService {
             background-size: cover;
             background-position: center;
             background-color: #1e293b;
+            cursor: pointer;
         }
 
         .image-info {
@@ -470,6 +502,10 @@ export class ImageService {
             color: var(--text-dim);
             word-break: break-all;
             margin-bottom: 0.5rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
 
         .image-meta {
@@ -479,12 +515,32 @@ export class ImageService {
             color: var(--text-dim);
         }
 
+        .card-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .btn-sm {
+            flex: 1;
+            padding: 0.4rem;
+            font-size: 0.75rem;
+            border-radius: 0.5rem;
+        }
+
         .btn-copy {
             background: rgba(255, 255, 255, 0.1);
-            padding: 0.25rem 0.5rem;
-            font-size: 0.75rem;
-            width: auto;
-            margin-top: 0.5rem;
+        }
+
+        .btn-delete {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-delete:hover {
+            background: var(--danger);
+            color: white;
         }
 
         .logout-btn {
@@ -507,10 +563,13 @@ export class ImageService {
             bottom: 2rem;
             right: 2rem;
             background: var(--primary);
+            color: white;
             padding: 0.75rem 1.5rem;
             border-radius: 0.5rem;
             display: none;
             animation: slideUp 0.3s ease-out;
+            z-index: 1000;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
 
         @keyframes slideUp {
@@ -625,16 +684,53 @@ export class ImageService {
                 card.innerHTML = \`
                     <div class="image-preview" style="background-image: url('\${img.url}')" onclick="window.open('\${img.url}')"></div>
                     <div class="image-info">
-                        <div class="image-path">\${img.key}</div>
+                        <div class="image-path" title="\${img.key}">\${img.key}</div>
                         <div class="image-meta">
                             <span>\${formatSize(img.size)}</span>
                             <span>\${new Date(img.uploaded).toLocaleDateString()}</span>
                         </div>
-                        <button class="btn-copy" onclick="copyUrl('\${img.url}')">复制链接</button>
+                        <div class="card-actions">
+                            <button class="btn-sm btn-copy" onclick="copyUrl('\${img.url}')">复制</button>
+                            <button class="btn-sm btn-delete" onclick="deleteImage('\${img.key}', this)">删除</button>
+                        </div>
                     </div>
                 \`;
                 grid.appendChild(card);
             });
+        }
+
+        async function deleteImage(key, btn) {
+            if (!confirm('确定要永久删除这张图片吗？此操作不可撤销。')) return;
+            
+            const originalText = btn.textContent;
+            btn.textContent = '删除中...';
+            btn.disabled = true;
+
+            const token = localStorage.getItem('cf_photo_token');
+            try {
+                const res = await fetch('/admin/delete/' + key, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+
+                const data = await res.json();
+                if (data.result === 'success') {
+                    showToast('删除成功', 'var(--success)');
+                    // 动态移除卡片
+                    const card = btn.closest('.image-card');
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.9)';
+                    setTimeout(() => card.remove(), 300);
+                } else {
+                    alert('删除失败: ' + data.message);
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                }
+            } catch (e) {
+                alert('请求出错');
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
 
         function formatSize(bytes) {
@@ -647,10 +743,16 @@ export class ImageService {
 
         function copyUrl(url) {
             navigator.clipboard.writeText(url).then(() => {
-                const toast = document.getElementById('toast');
-                toast.style.display = 'block';
-                setTimeout(() => { toast.style.display = 'none'; }, 2000);
+                showToast('复制成功!');
             });
+        }
+
+        function showToast(text, color) {
+            const toast = document.getElementById('toast');
+            toast.textContent = text;
+            toast.style.background = color || 'var(--primary)';
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2000);
         }
     </script>
 </body>

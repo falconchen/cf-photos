@@ -104,6 +104,15 @@ export default {
             return await imageService.listImages(request, limit, cursor, year, month, day);
         }
 
+        // 管理接口：删除图片
+        if (path.startsWith('/admin/delete/') && request.method === 'DELETE') {
+            if (!AuthMiddleware.verify(request, env)) {
+                return AuthMiddleware.unauthorizedResponse();
+            }
+            const key = path.replace('/admin/delete/', '');
+            return await imageService.deleteImage(key);
+        }
+
         // 默认返回 404
         return new Response('Not Found', {
             status: 404,
