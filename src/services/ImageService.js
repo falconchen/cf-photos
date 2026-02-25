@@ -316,6 +316,353 @@ export class ImageService {
     }
 
     /**
+     * 渲染管理后台 HTML 界面
+     * @returns {Response}
+     */
+    renderDashboard() {
+        const html = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CF-Photos 管理后台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+            background-image: radial-gradient(circle at 50% -20%, #1e293b, #0f172a);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 1.875rem;
+            font-weight: 600;
+            background: linear-gradient(to right, #60a5fa, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Login Screen */
+        #login-screen {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 70vh;
+        }
+
+        .login-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            padding: 2.5rem;
+            border-radius: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .login-card h2 {
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 0.75rem;
+            color: white;
+            margin-bottom: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+        }
+
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        /* Dashboard */
+        #dashboard {
+            display: none;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .image-card {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .image-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .image-preview {
+            aspect-ratio: 16/10;
+            background-size: cover;
+            background-position: center;
+            background-color: #1e293b;
+        }
+
+        .image-info {
+            padding: 1rem;
+        }
+
+        .image-path {
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            word-break: break-all;
+            margin-bottom: 0.5rem;
+        }
+
+        .image-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .btn-copy {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            width: auto;
+            margin-top: 0.5rem;
+        }
+
+        .logout-btn {
+            background: transparent;
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            width: auto;
+            padding: 0.4rem 1rem;
+            font-size: 0.875rem;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 4rem;
+            color: var(--text-dim);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--primary);
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            display: none;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Photo Cloud</h1>
+            <div id="header-actions" style="display: none;">
+                <button class="logout-btn" onclick="logout()">退出登录</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- Login -->
+            <div id="login-screen">
+                <div class="login-card">
+                    <h2>管理鉴权</h2>
+                    <input type="password" id="token-input" placeholder="输入 AUTH_TOKEN">
+                    <button onclick="login()">进入管理后台</button>
+                    <p id="login-error" style="color: var(--danger); font-size: 0.875rem; margin-top: 1rem; display: none;"></p>
+                </div>
+            </div>
+
+            <!-- Dashboard -->
+            <div id="dashboard">
+                <div id="loading">正在加载图片...</div>
+                <div id="image-grid" class="grid"></div>
+                <div id="load-more" style="text-align: center; margin-top: 3rem; display: none;">
+                    <button onclick="loadImages(true)" style="width: auto; padding: 0.75rem 2rem;">加载更多</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="toast" class="toast">复制成功!</div>
+
+    <script>
+        let currentCursor = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('cf_photo_token');
+            if (token) {
+                showDashboard();
+            }
+        });
+
+        function login() {
+            const token = document.getElementById('token-input').value;
+            if (!token) return;
+            localStorage.setItem('cf_photo_token', token);
+            showDashboard();
+        }
+
+        function logout() {
+            localStorage.removeItem('cf_photo_token');
+            location.reload();
+        }
+
+        function showDashboard() {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('header-actions').style.display = 'block';
+            loadImages();
+        }
+
+        async function loadImages(append = false) {
+            const token = localStorage.getItem('cf_photo_token');
+            const url = new URL('/admin/list', location.origin);
+            url.searchParams.set('limit', 20);
+            if (append && currentCursor) {
+                url.searchParams.set('cursor', currentCursor);
+            }
+
+            try {
+                const res = await fetch(url, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+
+                if (res.status === 401) {
+                    localStorage.removeItem('cf_photo_token');
+                    location.reload();
+                    return;
+                }
+
+                const data = await res.json();
+                if (data.result === 'success') {
+                    renderImages(data.data.images, append);
+                    currentCursor = data.data.cursor;
+                    document.getElementById('load-more').style.display = currentCursor ? 'block' : 'none';
+                    document.getElementById('loading').style.display = 'none';
+                } else {
+                    alert('获取失败: ' + data.message);
+                }
+            } catch (e) {
+                console.error(e);
+                alert('网络请求出错');
+            }
+        }
+
+        function renderImages(images, append) {
+            const grid = document.getElementById('image-grid');
+            if (!append) grid.innerHTML = '';
+
+            images.forEach(img => {
+                const card = document.createElement('div');
+                card.className = 'image-card';
+                card.innerHTML = \`
+                    <div class="image-preview" style="background-image: url('\${img.url}')" onclick="window.open('\${img.url}')"></div>
+                    <div class="image-info">
+                        <div class="image-path">\${img.key}</div>
+                        <div class="image-meta">
+                            <span>\${formatSize(img.size)}</span>
+                            <span>\${new Date(img.uploaded).toLocaleDateString()}</span>
+                        </div>
+                        <button class="btn-copy" onclick="copyUrl('\${img.url}')">复制链接</button>
+                    </div>
+                \`;
+                grid.appendChild(card);
+            });
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function copyUrl(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                const toast = document.getElementById('toast');
+                toast.style.display = 'block';
+                setTimeout(() => { toast.style.display = 'none'; }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
+        `;
+
+        return new Response(html, {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' }
+        });
+    }
+
+    /**
      * 获取 R2 中的图片列表
      * @param {Request} request 原始请求对象 (用于拼接完整 URL)
      * @param {number} limit 每次获取的数量限制

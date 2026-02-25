@@ -19,6 +19,11 @@ export default {
         const path = url.pathname;
         const imageService = new ImageService(env.MY_BUCKET);
 
+        // 首页：展示管理后台界面
+        if (path === '/' && request.method === 'GET') {
+            return imageService.renderDashboard();
+        }
+
         // 处理自动上传路由
         if (path === '/upload' && request.method === 'POST') {
             const contentType = request.headers.get('Content-Type') || '';
