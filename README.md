@@ -66,6 +66,43 @@ curl -X POST --data-binary "@photo.jpg" \
 }
 ```
 
+## 管理功能
+
+### 获取图片列表
+用于列出 R2 存储中 `i/` 目录下的所有图片。
+- **URL**: `GET /admin/list`
+- **鉴权**: 必须带上 `Authorization: Bearer your_secret_token`
+- **参数**:
+    - `limit`: (可选) 每次返回的数量,默认 50,最大 100。
+    - `cursor`: (可选) 分页游标,用于获取下一页数据。
+    - `year`: (可选) 按年份筛选,如 `2026`。
+    - `month`: (可选) 按月份筛选,如 `02` (需配合 `year` 使用)。
+    - `day`: (可选) 按日期筛选,如 `25` (需配合 `year` 和 `month` 使用)。
+- **示例 (curl)**:
+```bash
+# 获取 2026 年 2 月 25 日的所有图片
+curl -H "Authorization: Bearer your_secret_token" \
+  "https://your-worker.workers.dev/admin/list?year=2026&month=02&day=25"
+```
+- **响应 (JSON)**:
+```json
+{
+  "result": "success",
+  "data": {
+    "images": [
+      {
+        "key": "i/2026/02/25/abc1234.jpg",
+        "url": "https://domain.com/i/2026/02/25/abc1234.jpg",
+        "size": 102400,
+        "uploaded": "2026-02-25T15:00:00.000Z"
+      }
+    ],
+    "cursor": "...",
+    "count": 1
+  }
+}
+```
+
 ## 客户端配置 (以 uPic 为例)
 
 根据 [uPic 自定义图床教程](https://blog.svend.cc/upic/tutorials/custom/)，配置如下：

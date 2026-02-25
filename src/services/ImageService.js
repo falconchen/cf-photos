@@ -316,6 +316,77 @@ export class ImageService {
     }
 
     /**
+     * 获取 R2 中的图片列表
+     * @param {Request} request 原始请求对象 (用于拼接完整 URL)
+     * @param {number} limit 每次获取的数量限制
+     * @param {string} cursor 分页游标
+     * @param {string} year 年份 (可选)
+     * @param {string} month 月份 (可选)
+     * @param {string} day 日期 (可选)
+     * @returns {Promise<Response>} 响应对象，包含图片列表和分页信息
+     */
+    async listImages(request, limit = 50, cursor = null, year = null, month = null, day = null) {
+        try {
+            // 根据年份、月份和日期构造前缀
+            let prefix = 'i/';
+            if (year) {
+                prefix += `${year}/`;
+                if (month) {
+                    prefix += `${month.padStart(2, '0')}/`;
+                    if (day) {
+                        prefix += `${day.padStart(2, '0')}/`;
+                    }
+                }
+            }
+
+            const options = {
+                limit: Math.min(limit, 100), // 最大限制 100
+                prefix: prefix, // 按目录前缀进行筛选
+            };
+
+            // 仅在 cursor 存在且不为 null/undefined 时添加该属性
+            if (cursor) {
+                options.cursor = cursor;
+            }
+
+            const listed = await this.bucket.list(options);
+            const urlObj = new URL(request.url);
+            const domain = `${urlObj.protocol}//${urlObj.host}`;
+
+            const images = listed.objects.map(obj => ({
+                key: obj.key,
+                url: `${domain}/${obj.key}`,
+                size: obj.size,
+                uploaded: obj.uploaded,
+                httpMetadata: obj.httpMetadata
+            }));
+
+            return new Response(JSON.stringify({
+                result: 'success',
+                code: 200,
+                data: {
+                    images: images,
+                    cursor: listed.truncated ? listed.cursor : null,
+                    count: images.length
+                }
+            }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' }
+            });
+        } catch (error) {
+            console.error(`ImageService.listImages 运行出错: ${error.message}`);
+            return new Response(JSON.stringify({
+                result: 'error',
+                code: 500,
+                message: error.message
+            }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' }
+            });
+        }
+    }
+
+    /**
      * 根据 Content-Type 获取文件扩展名
      * @param {string} contentType 
      * @private

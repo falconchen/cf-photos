@@ -84,6 +84,21 @@ export default {
             return await imageService.fetchImage(path);
         }
 
+        // 管理接口：列出图片
+        if (path === '/admin/list' && request.method === 'GET') {
+            if (!AuthMiddleware.verify(request, env)) {
+                return AuthMiddleware.unauthorizedResponse();
+            }
+
+            const limit = parseInt(url.searchParams.get('limit')) || 50;
+            const cursor = url.searchParams.get('cursor');
+            const year = url.searchParams.get('year');
+            const month = url.searchParams.get('month');
+            const day = url.searchParams.get('day');
+
+            return await imageService.listImages(request, limit, cursor, year, month, day);
+        }
+
         // 默认返回 404
         return new Response('Not Found', {
             status: 404,
