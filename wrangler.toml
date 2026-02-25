@@ -1,0 +1,7 @@
+name = "cf-photos"
+main = "src/index.js"
+compatibility_date = "2024-04-03"
+
+[[r2_buckets]]
+binding = "MY_BUCKET"
+bucket_name = "photo-backup"
