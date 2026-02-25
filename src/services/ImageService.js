@@ -584,7 +584,7 @@ export class ImageService {
         async function loadImages(append = false) {
             const token = localStorage.getItem('cf_photo_token');
             const url = new URL('/admin/list', location.origin);
-            url.searchParams.set('limit', 20);
+            url.searchParams.set('limit', 12);
             if (append && currentCursor) {
                 url.searchParams.set('cursor', currentCursor);
             }
