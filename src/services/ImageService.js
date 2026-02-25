@@ -829,35 +829,57 @@ export class ImageService {
      * @private
      */
     async _generateYearOptions() {
+        const foundYears = new Set();
+        const currentYear = new Date().getFullYear();
+
         try {
-            // 使用 delimiter '/' 配合 prefix 'i/' 发现目录 (即年份)
+            // 方式 1: 使用 delimiter 尝试列出一级目录 (最快)
             const listed = await this.bucket.list({
                 prefix: 'i/',
                 delimiter: '/'
             });
 
-            // commonPrefixes 包含形式如 'i/2024/', 'i/2025/' 的项
-            const years = (listed.commonPrefixes || [])
-                .map(p => {
+            if (listed.commonPrefixes) {
+                listed.commonPrefixes.forEach(p => {
                     const match = p.match(/i\/(\d{4})\//);
-                    return match ? match[1] : null;
-                })
-                .filter(Boolean)
-                .sort((a, b) => b - a); // 倒序排列
-
-            // 如果没有发现年份，默认返回当前年份作为兜底
-            if (years.length === 0) {
-                const currentYear = new Date().getFullYear().toString();
-                return `<option value="${currentYear}">${currentYear}年</option>`;
+                    if (match) foundYears.add(match[1]);
+                });
             }
 
-            return years.map(y => `<option value="${y}">${y}年</option>`).join('');
+            // 方式 2: 如果方式 1 没查到足够结果 (可能是本地环境限制), 则主动迭代探测 30 年
+            // 这种探测是并行的, 在 Cloudflare 网络内非常快
+            const yearsToProbe = [];
+            for (let y = currentYear; y > currentYear - 30; y--) {
+                const yearStr = y.toString();
+                if (!foundYears.has(yearStr)) {
+                    yearsToProbe.push(yearStr);
+                }
+            }
+
+            // 并行检查每个年份文件夹是否存在内容
+            await Promise.all(yearsToProbe.map(async (year) => {
+                const check = await this.bucket.list({
+                    prefix: `i/${year}/`,
+                    limit: 1
+                });
+                if (check.objects.length > 0) {
+                    foundYears.add(year);
+                }
+            }));
+
         } catch (error) {
             console.error('动态发现年份失败:', error);
-            // 兜底方案
-            const year = new Date().getFullYear();
-            return `<option value="${year}">${year}年</option>`;
         }
+
+        // 转换为排序后的数组
+        const sortedYears = Array.from(foundYears).sort((a, b) => b - a);
+
+        // 兜底: 至少显示当前年份
+        if (sortedYears.length === 0) {
+            sortedYears.push(currentYear.toString());
+        }
+
+        return sortedYears.map(y => `<option value="${y}">${y}年</option>`).join('');
     }
 
 
