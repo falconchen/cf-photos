@@ -833,40 +833,18 @@ export class ImageService {
         const currentYear = new Date().getFullYear();
 
         try {
-            // 方式 1: 使用 delimiter 尝试列出一级目录 (最快)
+            // 使用 delimiter 尝试列出一级目录 (最快)
             const listed = await this.bucket.list({
                 prefix: 'i/',
                 delimiter: '/'
             });
 
-            if (listed.commonPrefixes) {
-                listed.commonPrefixes.forEach(p => {
+            if (listed.delimitedPrefixes) {
+                listed.delimitedPrefixes.forEach(p => {
                     const match = p.match(/i\/(\d{4})\//);
                     if (match) foundYears.add(match[1]);
                 });
             }
-
-            // 方式 2: 如果方式 1 没查到足够结果 (可能是本地环境限制), 则主动迭代探测 30 年
-            // 这种探测是并行的, 在 Cloudflare 网络内非常快
-            const yearsToProbe = [];
-            for (let y = currentYear; y > currentYear - 30; y--) {
-                const yearStr = y.toString();
-                if (!foundYears.has(yearStr)) {
-                    yearsToProbe.push(yearStr);
-                }
-            }
-
-            // 并行检查每个年份文件夹是否存在内容
-            await Promise.all(yearsToProbe.map(async (year) => {
-                const check = await this.bucket.list({
-                    prefix: `i/${year}/`,
-                    limit: 1
-                });
-                if (check.objects.length > 0) {
-                    foundYears.add(year);
-                }
-            }));
-
         } catch (error) {
             console.error('动态发现年份失败:', error);
         }
@@ -874,7 +852,7 @@ export class ImageService {
         // 转换为排序后的数组
         const sortedYears = Array.from(foundYears).sort((a, b) => b - a);
 
-        // 兜底: 至少显示当前年份
+        // 兜底: 如果没有发现年份，至少显示当前年份
         if (sortedYears.length === 0) {
             sortedYears.push(currentYear.toString());
         }
