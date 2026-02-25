@@ -576,6 +576,40 @@ export class ImageService {
             from { transform: translateY(100%); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
+
+        /* Filter Bar */
+        .filter-bar {
+            background: var(--card-bg);
+            padding: 1rem 1.5rem;
+            border-radius: 1rem;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .select-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .select-group label {
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            white-space: nowrap;
+        }
+
+        .select-group select {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 0.4rem 1rem;
+            border-radius: 0.5rem;
+            outline: none;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -600,6 +634,15 @@ export class ImageService {
 
             <!-- Dashboard -->
             <div id="dashboard">
+                <div class="filter-bar">
+                    <div class="select-group">
+                        <label for="year-select">年份筛选:</label>
+                        <select id="year-select" onchange="resetAndLoad()">
+                            <option value="">全部</option>
+                            ${this._generateYearOptions()}
+                        </select>
+                    </div>
+                </div>
                 <div id="loading">正在加载图片...</div>
                 <div id="image-grid" class="grid"></div>
                 <div id="load-more" style="text-align: center; margin-top: 3rem; display: none;">
@@ -640,10 +683,21 @@ export class ImageService {
             loadImages();
         }
 
+        function resetAndLoad() {
+            currentCursor = null;
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('image-grid').innerHTML = '';
+            loadImages();
+        }
+
         async function loadImages(append = false) {
             const token = localStorage.getItem('cf_photo_token');
             const url = new URL('/admin/list', location.origin);
             url.searchParams.set('limit', 12);
+            
+            const year = document.getElementById('year-select').value;
+            if (year) url.searchParams.set('year', year);
+
             if (append && currentCursor) {
                 url.searchParams.set('cursor', currentCursor);
             }
@@ -762,6 +816,21 @@ export class ImageService {
         return new Response(html, {
             headers: { 'Content-Type': 'text/html; charset=utf-8' }
         });
+    }
+
+    /**
+     * 生成年份下拉选项
+     * @private
+     */
+    _generateYearOptions() {
+        const currentYear = new Date().getFullYear();
+        let options = '';
+        // 生成从今年开始往回数 5 年的选项
+        for (let i = 0; i < 5; i++) {
+            const year = currentYear - i;
+            options += `<option value="${year}">${year}年</option>`;
+        }
+        return options;
     }
 
     /**
