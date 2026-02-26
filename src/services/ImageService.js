@@ -493,15 +493,26 @@ export class ImageService {
 
         .image-preview {
             aspect-ratio: 16/10;
-            background-size: cover;
-            background-position: center;
             background-color: #1e293b;
             cursor: pointer;
-            transition: opacity 0.5s ease-in-out;
-            opacity: 0;
+            position: relative;
+            overflow: hidden;
         }
 
-        .image-preview.loaded {
+        .real-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            opacity: 0;
+            transition: opacity 0.6s ease-in-out;
+            z-index: 1;
+        }
+
+        .real-image.loaded {
             opacity: 1;
         }
 
@@ -764,7 +775,9 @@ export class ImageService {
                 const imageId = 'img-' + Math.random().toString(36).substr(2, 9);
                 
                 card.innerHTML = \`
-                    <div id="\${imageId}" class="image-preview pulse" onclick="window.open('\${img.url}')"></div>
+                    <div class="image-preview pulse" onclick="window.open('\${img.url}')">
+                        <div id="\${imageId}" class="real-image"></div>
+                    </div>
                     <div class="image-info">
                         <div class="image-path" title="\${img.key}">\${img.key}</div>
                         <div class="image-meta">
@@ -786,8 +799,11 @@ export class ImageService {
                     const el = document.getElementById(imageId);
                     if (el) {
                         el.style.backgroundImage = \`url('\${img.url}')\`;
-                        el.classList.remove('pulse');
                         el.classList.add('loaded');
+                        // 加载完成后移除外层 pulse 效果
+                        setTimeout(() => {
+                            el.parentElement.classList.remove('pulse');
+                        }, 600);
                     }
                 };
             });
