@@ -497,6 +497,24 @@ export class ImageService {
             background-position: center;
             background-color: #1e293b;
             cursor: pointer;
+            transition: opacity 0.5s ease-in-out;
+            opacity: 0;
+        }
+
+        .image-preview.loaded {
+            opacity: 1;
+        }
+
+        .pulse {
+            background: linear-gradient(-45deg, #1e293b, #334155, #1e293b);
+            background-size: 400% 400%;
+            animation: pulse 1.5s ease infinite;
+        }
+
+        @keyframes pulse {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
         .image-info {
@@ -741,8 +759,12 @@ export class ImageService {
             images.forEach(img => {
                 const card = document.createElement('div');
                 card.className = 'image-card';
+                
+                // 唯一的 ID 用于在该卡片内操作图片
+                const imageId = 'img-' + Math.random().toString(36).substr(2, 9);
+                
                 card.innerHTML = \`
-                    <div class="image-preview" style="background-image: url('\${img.url}')" onclick="window.open('\${img.url}')"></div>
+                    <div id="\${imageId}" class="image-preview pulse" onclick="window.open('\${img.url}')"></div>
                     <div class="image-info">
                         <div class="image-path" title="\${img.key}">\${img.key}</div>
                         <div class="image-meta">
@@ -756,6 +778,18 @@ export class ImageService {
                     </div>
                 \`;
                 grid.appendChild(card);
+
+                // 异步预加载图片
+                const loader = new Image();
+                loader.src = img.url;
+                loader.onload = () => {
+                    const el = document.getElementById(imageId);
+                    if (el) {
+                        el.style.backgroundImage = \`url('\${img.url}')\`;
+                        el.classList.remove('pulse');
+                        el.classList.add('loaded');
+                    }
+                };
             });
         }
 
