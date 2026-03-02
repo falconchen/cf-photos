@@ -408,6 +408,19 @@ export class ImageService {
             background: linear-gradient(to right, #60a5fa, #a855f7);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-icon {
+            background: linear-gradient(to bottom right, #60a5fa, #a855f7);
+            -webkit-background-clip: unset;
+            -webkit-text-fill-color: initial;
+            fill: white;
+            padding: 6px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
         }
 
         /* Login Screen */
@@ -844,7 +857,12 @@ export class ImageService {
 <body>
     <div class="container">
         <header>
-            <h1>Photo Cloud</h1>
+            <h1>
+                <svg class="logo-icon" style="width: 32px; height: 32px;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 11V15M12 15L10 13M12 15L14 13M17.65 14.35C18.49 13.92 19.14 13.2 19.5 12.31C19.86 11.42 19.91 10.45 19.64 9.53C19.38 8.61 18.82 7.79 18.06 7.23C17.3 6.67 16.37 6.4 15.45 6.46C15.01 5.4 14.25 4.51 13.28 3.9C12.3 3.3 11.17 3 10 3C8.12 3 6.4 3.93 5.31 5.37C3.96 5.8 2.85 6.78 2.26 8.05C1.67 9.32 1.63 10.77 2.16 12.08C2.69 13.39 3.74 14.44 5.08 14.99" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Photo Cloud
+            </h1>
             <div id="header-actions" style="display: none; display: flex; gap: 0.75rem;">
                 <button class="btn-primary" onclick="showUploadModal()">
                     <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
