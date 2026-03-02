@@ -556,11 +556,32 @@ export class ImageService {
             margin-top: 1rem;
         }
 
+        .logout-btn {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+            width: auto;
+            padding: 0.4rem 1rem;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-radius: 0.5rem;
+        }
+
         .btn-sm {
             flex: 1;
             padding: 0.4rem;
             font-size: 0.75rem;
             border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.3rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            color: var(--text);
         }
 
         .btn-copy {
@@ -576,15 +597,6 @@ export class ImageService {
         .btn-delete:hover {
             background: var(--danger);
             color: white;
-        }
-
-        .logout-btn {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            color: var(--danger);
-            width: auto;
-            padding: 0.4rem 1rem;
-            font-size: 0.875rem;
         }
 
         .btn-primary {
@@ -744,14 +756,18 @@ export class ImageService {
         }
 
         .btn-copy-link {
-            padding: 0.25rem 0.6rem;
-            font-size: 0.7rem;
+            padding: 0.3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             background: rgba(59, 130, 246, 0.1);
             color: var(--primary);
             border: 1px solid rgba(59, 130, 246, 0.2);
             border-radius: 0.4rem;
             cursor: pointer;
-            width: auto;
+            width: 28px;
+            height: 28px;
+            flex-shrink: 0;
         }
 
         .btn-copy-link:hover {
@@ -782,9 +798,12 @@ export class ImageService {
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
 
-        @keyframes slideUp {
-            from { transform: translateY(100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .spin {
+            animation: spin 1s linear infinite;
         }
 
         /* Filter Bar */
@@ -831,7 +850,10 @@ export class ImageService {
                     <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     上传图片
                 </button>
-                <button class="logout-btn" onclick="logout()">退出登录</button>
+                <button class="logout-btn" onclick="logout()">
+                    <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                    退出登录
+                </button>
             </div>
         </header>
 
@@ -850,6 +872,7 @@ export class ImageService {
             <div id="dashboard">
                 <div class="filter-bar">
                     <div class="select-group">
+                        <svg style="width: 16px; height: 16px; color: var(--text-dim);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         <label for="year-select">年份筛选:</label>
                         <select id="year-select" onchange="resetAndLoad()">
                             <option value="">全部</option>
@@ -894,6 +917,8 @@ export class ImageService {
             if (token) {
                 showDashboard();
             }
+            // 页面加载时初始化一次拖拽事件即可
+            initDragAndDrop();
         });
 
         function login() {
@@ -918,7 +943,6 @@ export class ImageService {
         /* Upload Logic */
         function showUploadModal() {
             document.getElementById('upload-modal').style.display = 'flex';
-            initDragAndDrop();
         }
 
         function hideUploadModal() {
@@ -935,8 +959,15 @@ export class ImageService {
 
         function initDragAndDrop() {
             const dropzone = document.getElementById('dropzone');
+            if (!dropzone) return;
 
             ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                // 在 window 上也禁用默认行为以免浏览器直接打开图片
+                window.addEventListener(eventName, e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+                
                 dropzone.addEventListener(eventName, e => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -952,9 +983,10 @@ export class ImageService {
             });
 
             dropzone.addEventListener('drop', e => {
-                const dt = e.dataTransfer;
-                const files = dt.files;
-                handleFiles(files);
+                const files = e.dataTransfer.files;
+                if (files && files.length > 0) {
+                    handleFiles(files);
+                }
             }, false);
         }
 
@@ -988,7 +1020,9 @@ export class ImageService {
                     '<div class="upload-item-progress"><div class="progress-bar"></div></div>' +
                 '</div>' +
                 '<div class="upload-item-actions">' +
-                    '<div class="upload-item-status">等待中...</div>' +
+                    '<div class="upload-item-status">' +
+                        '<svg class="spin" style="width:16px;height:16px;opacity:0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>' +
+                    '</div>' +
                 '</div>';
             uploadList.prepend(item);
 
@@ -1001,7 +1035,7 @@ export class ImageService {
             const statusText = item.querySelector('.upload-item-status');
 
             try {
-                statusText.textContent = '上传中...';
+                statusText.innerHTML = '<svg class="spin" style="width:16px;height:16px;opacity:0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>';
                 progressBar.style.width = '30%';
 
                 const res = await fetch('/upload', {
@@ -1014,13 +1048,14 @@ export class ImageService {
 
                 const data = await res.json();
                 if (data.result === 'success') {
-                    statusText.textContent = '成功';
+                    statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
                     statusText.className = 'upload-item-status status-success';
 
                     // 添加复制按钮
                     const copyBtn = document.createElement('button');
                     copyBtn.className = 'btn-copy-link';
-                    copyBtn.textContent = '复制链接';
+                    copyBtn.title = '复制链接';
+                    copyBtn.innerHTML = '<svg style="width:14px;height:14px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>';
                     copyBtn.onclick = () => copyUrl(data.url);
                     actionArea.appendChild(copyBtn);
 
@@ -1035,12 +1070,12 @@ export class ImageService {
                     };
                     renderImages([newImage], true, true);
                 } else {
-                    statusText.textContent = '失败';
+                    statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
                     statusText.className = 'upload-item-status status-error';
                     alert('上传失败: ' + data.message);
                 }
             } catch (e) {
-                statusText.textContent = '出错';
+                statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
                 statusText.className = 'upload-item-status status-error';
                 console.error(e);
             } finally {
@@ -1116,8 +1151,14 @@ export class ImageService {
                             <span>\${new Date(img.uploaded).toLocaleDateString()}</span>
                         </div>
                         <div class="card-actions">
-                            <button class="btn-sm btn-copy" onclick="copyUrl('\${img.url}')">复制</button>
-                            <button class="btn-sm btn-delete" onclick="deleteImage('\${img.key}', this)">删除</button>
+                            <button class="btn-sm btn-copy" onclick="copyUrl('\${img.url}')">
+                                <svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                                复制
+                            </button>
+                            <button class="btn-sm btn-delete" onclick="deleteImage('\${img.key}', this)">
+                                <svg style="width: 14px; height: 14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                删除
+                            </button>
                         </div>
                     </div>
                 \`;
