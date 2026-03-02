@@ -1,7 +1,10 @@
 # Cloudflare R2 图床应用规格说明书 (Spec)
 
 ## 项目简介
-本项目是一个基于 Cloudflare Workers 和 R2 存储的图床应用。初始阶段主要功能是展示存储在 R2 中的图片。
+本项目是一个基于 Cloudflare Workers 和 R2 存储的图床应用。初始阶段主要功能是：
+- [x] 支持通过路径访问 R2 中的图片
+- [x] 支持图片列表展示
+- [x] 支持管理后台手动上传图片 (文件选择 & 拖拽)
 
 ## 系统架构
 - **后端**: Cloudflare Workers (JavaScript)
@@ -31,7 +34,10 @@
   - 成功: 返回 201 Created，JSON 包含图片访问 URL。
   - 失败: 返回 401 Unauthorized 或 500 Internal Server Error。
 
-## 开发规范
+### 3. 管理后台
+- **功能**: 展示图片列表、删除图片、年份筛选、**手动上传图片**。
+- **上传方式**: 支持点击按钮触发弹窗，通过文件选择或拖拽上传。
+
 - 语言: JavaScript (ES Modules)
 - 遵循 S.O.L.I.D 原则。
 - 函数级别注释使用中文。

@@ -579,13 +579,188 @@ export class ImageService {
         }
 
         .logout-btn {
-            background: transparent;
-            border: 1px solid var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
             color: var(--danger);
             width: auto;
             padding: 0.4rem 1rem;
             font-size: 0.875rem;
         }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            width: auto;
+            padding: 0.4rem 1.2rem;
+            font-size: 0.875rem;
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .modal {
+            background: #1e293b;
+            width: 100%;
+            max-width: 600px;
+            border-radius: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .close-modal {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+            cursor: pointer;
+            width: auto;
+            padding: 0;
+        }
+
+        .modal-content {
+            padding: 2rem;
+        }
+
+        /* Upload Area */
+        .upload-dropzone {
+            border: 2px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(15, 23, 42, 0.3);
+        }
+
+        .upload-dropzone.active {
+            border-color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .upload-dropzone svg {
+            width: 48px;
+            height: 48px;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+        }
+
+        .upload-dropzone p {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+        }
+
+        .upload-list {
+            margin-top: 1.5rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .upload-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: rgba(15, 23, 42, 0.4);
+            padding: 0.6rem 0.75rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .upload-item-thumb {
+            width: 40px;
+            height: 40px;
+            border-radius: 0.4rem;
+            object-fit: cover;
+            background: rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
+        }
+
+        .upload-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .upload-item-name {
+            font-size: 0.875rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .upload-item-progress {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-top: 0.4rem;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .upload-item-status {
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+
+        .upload-item-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-copy-link {
+            padding: 0.25rem 0.6rem;
+            font-size: 0.7rem;
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            border-radius: 0.4rem;
+            cursor: pointer;
+            width: auto;
+        }
+
+        .btn-copy-link:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .status-success { color: var(--success); }
+        .status-error { color: var(--danger); }
 
         #loading {
             text-align: center;
@@ -603,7 +778,7 @@ export class ImageService {
             border-radius: 0.5rem;
             display: none;
             animation: slideUp 0.3s ease-out;
-            z-index: 1000;
+            z-index: 3000;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
 
@@ -651,7 +826,11 @@ export class ImageService {
     <div class="container">
         <header>
             <h1>Photo Cloud</h1>
-            <div id="header-actions" style="display: none;">
+            <div id="header-actions" style="display: none; display: flex; gap: 0.75rem;">
+                <button class="btn-primary" onclick="showUploadModal()">
+                    <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    上传图片
+                </button>
                 <button class="logout-btn" onclick="logout()">退出登录</button>
             </div>
         </header>
@@ -687,6 +866,24 @@ export class ImageService {
         </main>
     </div>
 
+    <!-- Upload Modal -->
+    <div id="upload-modal" class="modal-overlay" onclick="handleOverlayClick(event)">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>上传文件</h3>
+                <button class="close-modal" onclick="hideUploadModal()">&times;</button>
+            </div>
+            <div class="modal-content">
+                <div id="dropzone" class="upload-dropzone" onclick="document.getElementById('file-input').click()">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                    <p>拖拽文件到这里 或 点击上传</p>
+                    <input type="file" id="file-input" multiple hidden accept="image/*" onchange="handleFileSelect(event)">
+                </div>
+                <div id="upload-list" class="upload-list"></div>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast">复制成功!</div>
 
     <script>
@@ -714,8 +911,142 @@ export class ImageService {
         function showDashboard() {
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
-            document.getElementById('header-actions').style.display = 'block';
+            document.getElementById('header-actions').style.display = 'flex'; // 修正为 flex 以配合新增按钮
             loadImages();
+        }
+
+        /* Upload Logic */
+        function showUploadModal() {
+            document.getElementById('upload-modal').style.display = 'flex';
+            initDragAndDrop();
+        }
+
+        function hideUploadModal() {
+            document.getElementById('upload-modal').style.display = 'none';
+            // 清理上传列表
+            document.getElementById('upload-list').innerHTML = '';
+        }
+
+        function handleOverlayClick(e) {
+            if (e.target.classList.contains('modal-overlay')) {
+                hideUploadModal();
+            }
+        }
+
+        function initDragAndDrop() {
+            const dropzone = document.getElementById('dropzone');
+
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }, false);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropzone.addEventListener(eventName, () => dropzone.classList.add('active'), false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, () => dropzone.classList.remove('active'), false);
+            });
+
+            dropzone.addEventListener('drop', e => {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                handleFiles(files);
+            }, false);
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            handleFiles(files);
+        }
+
+        function handleFiles(files) {
+            ([...files]).forEach(uploadFile);
+        }
+
+        async function uploadFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showToast('只允许上传图片文件', 'var(--danger)');
+                return;
+            }
+
+            const id = 'upload-' + Math.random().toString(36).substr(2, 9);
+            const uploadList = document.getElementById('upload-list');
+
+            // 生成本地预览图
+            const previewUrl = URL.createObjectURL(file);
+
+            const item = document.createElement('div');
+            item.className = 'upload-item';
+            item.id = id;
+            item.innerHTML = '<img class="upload-item-thumb" src="' + previewUrl + '">' +
+                '<div class="upload-item-info">' +
+                    '<div class="upload-item-name">' + file.name + '</div>' +
+                    '<div class="upload-item-progress"><div class="progress-bar"></div></div>' +
+                '</div>' +
+                '<div class="upload-item-actions">' +
+                    '<div class="upload-item-status">等待中...</div>' +
+                '</div>';
+            uploadList.prepend(item);
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const token = localStorage.getItem('cf_photo_token');
+            const progressBar = item.querySelector('.progress-bar');
+            const actionArea = item.querySelector('.upload-item-actions');
+            const statusText = item.querySelector('.upload-item-status');
+
+            try {
+                statusText.textContent = '上传中...';
+                progressBar.style.width = '30%';
+
+                const res = await fetch('/upload', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    body: formData
+                });
+
+                progressBar.style.width = '100%';
+
+                const data = await res.json();
+                if (data.result === 'success') {
+                    statusText.textContent = '成功';
+                    statusText.className = 'upload-item-status status-success';
+
+                    // 添加复制按钮
+                    const copyBtn = document.createElement('button');
+                    copyBtn.className = 'btn-copy-link';
+                    copyBtn.textContent = '复制链接';
+                    copyBtn.onclick = () => copyUrl(data.url);
+                    actionArea.appendChild(copyBtn);
+
+                    showToast('上传成功: ' + file.name);
+
+                    // 直接将新上传的图片插入到列表最前面
+                    const newImage = {
+                        key: data.path.startsWith('/') ? data.path.slice(1) : data.path,
+                        url: data.url,
+                        size: file.size,
+                        uploaded: new Date().toISOString()
+                    };
+                    renderImages([newImage], true, true);
+                } else {
+                    statusText.textContent = '失败';
+                    statusText.className = 'upload-item-status status-error';
+                    alert('上传失败: ' + data.message);
+                }
+            } catch (e) {
+                statusText.textContent = '出错';
+                statusText.className = 'upload-item-status status-error';
+                console.error(e);
+            } finally {
+                // 上传完毕后一段时间清理 URL 对象释放内存（可选，但通常推荐）
+                // setTimeout(() => URL.revokeObjectURL(previewUrl), 10000);
+            }
         }
 
         function resetAndLoad() {
@@ -763,9 +1094,9 @@ export class ImageService {
             }
         }
 
-        function renderImages(images, append) {
+        function renderImages(images, append, prepend = false) {
             const grid = document.getElementById('image-grid');
-            if (!append) grid.innerHTML = '';
+            if (!append && !prepend) grid.innerHTML = '';
 
             images.forEach(img => {
                 const card = document.createElement('div');
@@ -790,7 +1121,12 @@ export class ImageService {
                         </div>
                     </div>
                 \`;
-                grid.appendChild(card);
+                
+                if (prepend) {
+                    grid.insertBefore(card, grid.firstChild);
+                } else {
+                    grid.appendChild(card);
+                }
 
                 // 异步预加载图片
                 const loader = new Image();
