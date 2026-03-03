@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+    <defs>
+        <linearGradient id="logoGradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#60a5fa" />
+            <stop offset="100%" stop-color="#a855f7" />
+        </linearGradient>
+    </defs>
+    <!-- Background -->
+    <rect width="24" height="24" rx="6" fill="url(#logoGradient)" />
+    <!-- Icon -->
+    <path d="M12 15V11M12 11L10 13M12 11L14 13M17.65 14.35C18.49 13.92 19.14 13.2 19.5 12.31C19.86 11.42 19.91 10.45 19.64 9.53C19.38 8.61 18.82 7.79 18.06 7.23C17.3 6.67 16.37 6.4 15.45 6.46C15.01 5.4 14.25 4.51 13.28 3.9C12.3 3.3 11.17 3 10 3C8.12 3 6.4 3.93 5.31 5.37C3.96 5.8 2.85 6.78 2.26 8.05C1.67 9.32 1.63 10.77 2.16 12.08C2.69 13.39 3.74 14.44 5.08 14.99" 
+          stroke="white" 
+          stroke-width="2" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" />
+</svg>

@@ -348,10 +348,6 @@ export class ImageService {
      * 渲染管理后台 HTML 界面
      * @returns {Promise<Response>}
      */
-    /**
-     * 渲染管理后台 HTML 界面
-     * @returns {Promise<Response>}
-     */
     async renderDashboard() {
         const yearOptions = await this._generateYearOptions();
 
@@ -362,6 +358,7 @@ export class ImageService {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CF-Photos 管理后台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2360a5fa'/%3E%3Cstop offset='100%25' stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='24' height='24' rx='6' fill='url(%23g)'/%3E%3Cpath d='M12 11V15M12 15L10 13M12 15L14 13M17.65 14.35C18.49 13.92 19.14 13.2 19.5 12.31C19.86 11.42 19.91 10.45 19.64 9.53C19.38 8.61 18.82 7.79 18.06 7.23C17.3 6.67 16.37 6.4 15.45 6.46C15.01 5.4 14.25 4.51 13.28 3.9C12.3 3.3 11.17 3 10 3C8.12 3 6.4 3.93 5.31 5.37C3.96 5.8 2.85 6.78 2.26 8.05C1.67 9.32 1.63 10.77 2.16 12.08C2.69 13.39 3.74 14.44 5.08 14.99' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -859,7 +856,7 @@ export class ImageService {
         <header>
             <h1>
                 <svg class="logo-icon" style="width: 32px; height: 32px;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 11V15M12 15L10 13M12 15L14 13M17.65 14.35C18.49 13.92 19.14 13.2 19.5 12.31C19.86 11.42 19.91 10.45 19.64 9.53C19.38 8.61 18.82 7.79 18.06 7.23C17.3 6.67 16.37 6.4 15.45 6.46C15.01 5.4 14.25 4.51 13.28 3.9C12.3 3.3 11.17 3 10 3C8.12 3 6.4 3.93 5.31 5.37C3.96 5.8 2.85 6.78 2.26 8.05C1.67 9.32 1.63 10.77 2.16 12.08C2.69 13.39 3.74 14.44 5.08 14.99" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M12 15V11M12 11L10 13M12 11L14 13M17.65 14.35C18.49 13.92 19.14 13.2 19.5 12.31C19.86 11.42 19.91 10.45 19.64 9.53C19.38 8.61 18.82 7.79 18.06 7.23C17.3 6.67 16.37 6.4 15.45 6.46C15.01 5.4 14.25 4.51 13.28 3.9C12.3 3.3 11.17 3 10 3C8.12 3 6.4 3.93 5.31 5.37C3.96 5.8 2.85 6.78 2.26 8.05C1.67 9.32 1.63 10.77 2.16 12.08C2.69 13.39 3.74 14.44 5.08 14.99" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
                 Photo Cloud
             </h1>
