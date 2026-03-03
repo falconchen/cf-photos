@@ -914,7 +914,7 @@ export class ImageService {
             <div class="modal-content">
                 <div id="dropzone" class="upload-dropzone" onclick="document.getElementById('file-input').click()">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                    <p>拖拽文件到这里 或 点击上传</p>
+                    <p>拖拽文件、粘贴 或 点击上传</p>
                     <input type="file" id="file-input" multiple hidden accept="image/*" onchange="handleFileSelect(event)">
                 </div>
                 <div id="upload-list" class="upload-list"></div>
@@ -934,6 +934,7 @@ export class ImageService {
             }
             // 页面加载时初始化一次拖拽事件即可
             initDragAndDrop();
+            initPasteSupport();
         });
 
         function login() {
@@ -1003,6 +1004,30 @@ export class ImageService {
                     handleFiles(files);
                 }
             }, false);
+        }
+
+        /**
+         * 初始化粘贴上传支持
+         */
+        function initPasteSupport() {
+            document.addEventListener('paste', e => {
+                const modal = document.getElementById('upload-modal');
+                // 仅当上传弹窗处于显示状态时才处理粘贴
+                if (modal && modal.style.display === 'flex') {
+                    const items = e.clipboardData.items;
+                    const files = [];
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const file = items[i].getAsFile();
+                            if (file) files.push(file);
+                        }
+                    }
+                    if (files.length > 0) {
+                        e.preventDefault(); // 阻止默认粘贴行为（如粘贴文本到搜索框等）
+                        handleFiles(files);
+                    }
+                }
+            });
         }
 
         function handleFileSelect(e) {
