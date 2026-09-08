@@ -147,6 +147,8 @@ curl -H "Authorization: Bearer your_secret_token" \
 5.  **URL 路径**: `["url"]` (后端返回 JSON 结构为 `{"url": "..."}`)
 6.  **域名**: `https://your-worker.workers.dev` (用于拼接完整路径)
 
+> 鉴权说明：`Authorization` 头优先，且在解析请求体**之前**校验——带了头但 token 不对会直接返回 401，不会先把文件读进内存。仅在完全不带 `Authorization` 头时，才回落到 `token` 表单 / JSON 字段（供只能这样传参的客户端使用）。因此**不要同时**带一个错误的头和一个正确的 `token` 字段，那会被拒绝。
+
 ### 上传图片示例 (cURL)
 #### 1. Form 数据上传 (uPic 模式)
 ```bash

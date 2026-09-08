@@ -30,16 +30,20 @@ export default {
             const contentType = request.headers.get('Content-Type') || '';
             console.log(`[Debug] 上传请求 Content-Type: "${contentType}"`);
 
+            // multipart 与 JSON 两条路径都会把整个请求体读进内存，因此鉴权尽量前置：
+            // 带了 Authorization 就以它为准，无效则立刻拒绝，不为一个注定失败的
+            // 请求缓冲文件。只有完全没带 Authorization 时才回落到请求体里的 token
+            // 字段（uPic 等客户端只能这么传），那条路径必须先解析才能拿到 token。
+            const hasHeaderAuth = AuthMiddleware.verify(request, env);
+            if (!hasHeaderAuth && AuthMiddleware.hasHeader(request)) {
+                return AuthMiddleware.unauthorizedResponse();
+            }
+
             // 1. 兼容 uPic 的 multipart/form-data 上传
             if (contentType.includes('multipart/form-data')) {
                 const formData = await request.formData();
 
-                // 鉴权校验：优先 Header，其次表单字段 "token"
-                const hasHeaderAuth = AuthMiddleware.verify(request, env);
-                const formToken = formData.get('token');
-                const hasFormAuth = formToken ? AuthMiddleware.verifyToken(formToken, env) : false;
-
-                if (!hasHeaderAuth && !hasFormAuth) {
+                if (!hasHeaderAuth && !AuthMiddleware.verifyToken(formData.get('token'), env)) {
                     return AuthMiddleware.unauthorizedResponse();
                 }
 
@@ -49,29 +53,23 @@ export default {
             // 2. 兼容 uPic 的 application/json (Base64) 上传
             if (contentType.includes('application/json')) {
                 const body = await request.json();
-                const imageBase64 = body.image;
-                const jsonToken = body.token;
 
-                if (!imageBase64) {
+                if (!hasHeaderAuth && !AuthMiddleware.verifyToken(body.token, env)) {
+                    return AuthMiddleware.unauthorizedResponse();
+                }
+
+                if (!body.image) {
                     return new Response(JSON.stringify({ result: 'error', code: 400, message: '缺少 image 字段' }), {
                         status: 400,
                         headers: { 'Content-Type': 'application/json' }
                     });
                 }
 
-                // 鉴权校验
-                const hasHeaderAuth = AuthMiddleware.verify(request, env);
-                const hasJsonAuth = jsonToken ? AuthMiddleware.verifyToken(jsonToken, env) : false;
-
-                if (!hasHeaderAuth && !hasJsonAuth) {
-                    return AuthMiddleware.unauthorizedResponse();
-                }
-
-                return await imageService.uploadWithBase64(request, imageBase64);
+                return await imageService.uploadWithBase64(request, body.image);
             }
 
-            // 3. 传统的二进制流上传
-            if (!AuthMiddleware.verify(request, env)) {
+            // 3. 传统的二进制流上传：body 以流的形式透传，不经过内存
+            if (!hasHeaderAuth) {
                 return AuthMiddleware.unauthorizedResponse();
             }
             return await imageService.uploadWithAutoPath(request, request.body, contentType);
