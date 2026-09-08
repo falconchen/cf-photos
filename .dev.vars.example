@@ -1,0 +1,4 @@
+AUTH_TOKEN=replace-with-a-long-random-token
+WEBDAV_URL=https://example.com/dav
+WEBDAV_USERNAME=your-username
+WEBDAV_PASSWORD=your-password
