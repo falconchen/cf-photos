@@ -149,20 +149,27 @@ export class WebDAVStorage {
         return entries;
     }
 
-    /** Depth:1 遍历；游标保存待访问目录和当前目录的最后一个文件。 */
-    async list({ prefix = 'i/', delimiter, limit = 50, cursor } = {}) {
+    /** Depth:1 遍历；游标保存待访问目录、当前目录的最后一个文件和排序方向。 */
+    async list({ prefix = 'i/', delimiter, limit = 50, cursor, order = 'asc' } = {}) {
         this.validate(prefix, true);
         if (delimiter) {
             const entries = await this.entries(prefix);
             return { objects: [], delimitedPrefixes: entries.filter(e => e.directory && e.key !== prefix && e.key.startsWith(prefix)).map(e => e.key), truncated: false };
         }
         limit = Math.max(1, Math.min(Number(limit) || 50, 100));
-        let state = { prefix, dirs: [prefix], after: '' };
+        const direction = order === 'desc' ? 'desc' : 'asc';
+        // desc 时整体取反：目录栈先进新日期，日目录内文件名按 ASCII 降序。
+        const compare = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) * (direction === 'desc' ? -1 : 1);
+        // after 为空串表示本目录尚无下界，两个方向都放行。
+        const beyond = (key, after) => after === '' || (direction === 'desc' ? key < after : key > after);
+        let state = { prefix, dirs: [prefix], after: '', order: direction };
         if (cursor) {
             try {
                 if (cursor.length > 50000) throw new Error();
                 state = JSON.parse(decodeURIComponent(escape(atob(cursor))));
                 if (state.prefix !== prefix || !Array.isArray(state.dirs) || state.dirs.length > 1000 || typeof state.after !== 'string') throw new Error();
+                // 方向必须与游标一致，否则续翻会重复或遗漏。
+                if ((state.order ?? 'asc') !== direction) throw new Error();
                 for (const dir of state.dirs) {
                     this.validate(dir, true);
                     if (!dir.startsWith(prefix) || !dir.endsWith('/')) throw new Error();
@@ -173,8 +180,8 @@ export class WebDAVStorage {
         for (let calls = 0; state.dirs.length && calls < 35 && objects.length < limit; calls++) {
             const dir = state.dirs[0];
             const entries = (await this.entries(dir)).filter(e => e.key !== dir && e.key.startsWith(dir) && !e.key.slice(dir.length).replace(/\/$/, '').includes('/'));
-            entries.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
-            const files = entries.filter(e => !e.directory && e.key > state.after);
+            entries.sort(compare);
+            const files = entries.filter(e => !e.directory && beyond(e.key, state.after));
             const selected = files.slice(0, limit - objects.length);
             objects.push(...selected);
             if (selected.length < files.length) {
