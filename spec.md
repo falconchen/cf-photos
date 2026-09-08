@@ -1,17 +1,17 @@
-# Cloudflare R2 图床应用规格说明书 (Spec)
+# Cloudflare WebDAV 图床应用规格说明书 (Spec)
 
 ## 项目简介
-本项目是一个基于 Cloudflare Workers 和 R2 存储的图床应用。初始阶段主要功能是：
-- [x] 支持通过路径访问 R2 中的图片
+本项目是一个基于 Cloudflare Workers 和 WebDAV 存储的图床应用。初始阶段主要功能是：
+- [x] 支持通过路径访问 WebDAV 中的图片
 - [x] 支持图片列表展示
 - [x] 支持管理后台手动上传图片 (文件选择 & 拖拽)
 
 ## 系统架构
 - **后端**: Cloudflare Workers (JavaScript)
-- **存储**: Cloudflare R2 (Bucket: `photo-backup`)
+- **存储**: WebDAV（通过 HTTPS 连接，配置根目录下的 `i/`）
 
 ## 图片路径规则
-图片存储在 R2 的 `i/` 目录下，按日期分级，例如：
+图片存储在 WebDAV 的 `i/` 目录下，按日期分级，例如：
 `/i/2022/05/12/12n4yjt.jpeg`
 其中文件名 `12n4yjt` 是随机生成的 7 位字符。
 
@@ -19,7 +19,7 @@
 
 ### 1. 获取图片接口
 - **URL**: `GET /i/{year}/{month}/{day}/{filename}`
-- **描述**: 根据路径从 R2 读取并返回图片内容。
+- **描述**: 根据路径从 WebDAV 读取并返回图片内容。
 - **响应**: 
   - 成功: 返回图片二进制流，`Content-Type` 为对应的图片类型。
   - 失败 (文件不存在): 返回 404 Not Found。

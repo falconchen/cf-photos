@@ -1,17 +1,21 @@
 {
   "name": "cf-photos",
   "version": "1.0.0",
-  "description": "基于 Cloudflare Workers + R2 的高性能图床应用。",
+  "description": "基于 Cloudflare Workers + WebDAV 的高性能图床应用。",
   "main": "src/index.js",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "wrangler": "^4.68.1"
-  }
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.1"
+  },
+  "type": "module"
 }

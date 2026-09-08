@@ -1,9 +1,9 @@
 # CF-Photos
 
-基于 Cloudflare Workers + R2 的高性能图床应用。
+基于 Cloudflare Workers + WebDAV 的高性能图床应用。
 
 ## 功能特性
-- [x] 支持通过路径访问 R2 中的图片
+- [x] 支持通过路径访问 WebDAV 中的图片
 - [x] 支持图片列表展示
 - [x] 支持管理后台手动上传图片 (文件选择、拖拽 & 复制粘贴)
 
@@ -70,7 +70,7 @@ curl -X POST --data-binary "@photo.jpg" \
 ## 管理功能
 
 ### 获取图片列表
-用于列出 R2 存储中 `i/` 目录下的所有图片。
+用于列出 WebDAV 存储中 `i/` 目录下的所有图片。
 - **URL**: `GET /admin/list`
 - **鉴权**: 必须带上 `Authorization: Bearer your_secret_token`
 - **参数**:
@@ -113,7 +113,7 @@ curl -H "Authorization: Bearer your_secret_token" \
 3.  **文件字段名**: `file`
 4.  **请求头**:
     - `Authorization`: `Bearer your_secret_token`
-5.  **URL 路径**: `["data", "url"]` (后端返回 JSON 结构为 `{"data": {"url": "..."}}`)
+5.  **URL 路径**: `["url"]` (后端返回 JSON 结构为 `{"url": "..."}`)
 6.  **域名**: `https://your-worker.workers.dev` (用于拼接完整路径)
 
 ### 上传图片示例 (cURL)
@@ -121,7 +121,7 @@ curl -H "Authorization: Bearer your_secret_token" \
 ```bash
 curl -X POST -F "file=@wang.jpeg" \
   -H "Authorization: Bearer your_secret_token" \
-  http://localhost:8788/upload
+  http://localhost:8787/upload
 ```
 
 #### 2. 二进制流上传
@@ -129,44 +129,43 @@ curl -X POST -F "file=@wang.jpeg" \
 curl -X POST --data-binary "@wang.jpeg" \
   -H "Authorization: Bearer your_secret_token" \
   -H "Content-Type: image/jpeg" \
-  http://localhost:8788/upload
+  http://localhost:8787/upload
 ```
 
-## 配置
+## WebDAV 配置与开发
 
-### 1. R2 绑定
-在 `wrangler.toml` 中配置：
-```toml
-[[r2_buckets]]
-binding = "MY_BUCKET"
-bucket_name = "photo-backup"
-```
+`webdav` 分支使用 WebDAV 存储，不需要 R2 绑定。接口路径和管理后台保持兼容。
 
-### 2. 鉴权 Token
-在部署时，通过以下命令设置生产环境 Token：
-```bash
-npx wrangler secret put AUTH_TOKEN
-```
-本地开发时，可以在项目根目录创建 `.dev.vars` 文件：
-```env
-AUTH_TOKEN=your_secret_token
-```
+1. 执行 `npm ci` 安装依赖（Node.js 22 或更高版本）。
+2. 将 `.dev.vars.example` 复制为 `.dev.vars`，填写 WebDAV 地址、用户名、密码和应用管理 Token。
+3. 执行 `chmod 600 .dev.vars`。该文件已被 Git 忽略，切勿提交实际凭据。
+4. 执行 `npm run dev -- --ip 127.0.0.1`，打开 http://127.0.0.1:8787。
 
-### 本地开发
-1. 克隆仓库
-2. 安装依赖: `npm install`
-3. 本地预览: `npx wrangler dev`
+`WEBDAV_URL` 必须是 HTTPS 根地址，例如 `https://example.com/dav`。图片 `/i/2026/09/08/example.png` 对应远端 `/dav/i/2026/09/08/example.png`。上传会逐级创建缺失目录；本地开发也会读写真实 WebDAV。
+
+`AUTH_TOKEN` 用于保护应用上传、列表和删除接口；与 WebDAV 密码相互独立。WebDAV 凭据只由 Worker 发送给配置的服务，不发给浏览器。请始终设置管理 Token。
 
 ### 部署
-执行以下命令部署到 Cloudflare Workers:
+
+在 Cloudflare 中分别设置以下 secrets（交互输入实际值）：
+
 ```bash
-npx wrangler deploy
+npx wrangler secret put WEBDAV_URL
+npx wrangler secret put WEBDAV_USERNAME
+npx wrangler secret put WEBDAV_PASSWORD
+npx wrangler secret put AUTH_TOKEN
+npm run deploy
 ```
 
-## 配置
-在 `wrangler.toml` 中配置 R2 绑定：
-```toml
-[[r2_buckets]]
-binding = "MY_BUCKET"
-bucket_name = "photo-backup"
-```
+`.dev.vars` 不会作为生产 secrets 部署。此分支移除了 R2 绑定，不会迁移原 R2 图片；旧图片需另行复制到 WebDAV 的同名路径。
+
+### 实现与验证
+
+- `src/services/WebDAVStorage.js` 封装 GET、PUT、MKCOL、PROPFIND 和 DELETE，使用 `fast-xml-parser` 解析命名空间 XML。
+- 列表使用 Depth:1 逐级遍历，通过游标继续当前目录；每页最多扫描 35 个目录，可能返回空列表但仍带有下一页游标。WebDAV 没有快照分页，并发修改时应刷新列表。
+- 管理后台遇到「空列表但有游标」时会自动带游标继续请求（单次操作最多 20 轮），因此深层目录不会被误显示为“暂无图片”；仍未找到时保留“加载更多”按钮供继续扫描。
+- 年份、月份、日期筛选直接缩小远端目录范围；大图库推荐按日期筛选，减少网络请求。
+- 图片响应保留远端 Content-Type、ETag 和 Last-Modified，并缓存一天；删除后已有客户端缓存可能继续有效。
+- 图片路径限制在 `i/`，拒绝目录穿越；删除接口禁止删除目录。WebDAV 重定向不会自动跟随，避免凭据发往其他地址。
+- 执行 `npm test` 验证协议适配、分页、路径和错误处理；执行 `npx wrangler deploy --dry-run` 验证 Worker 打包。
+- 真实验证应上传独立测试图片，核对下载字节、列表及日期筛选，再删除该测试图片并确认返回 404。

@@ -3,6 +3,7 @@
  * 负责路由请求并分发到对应的处理器
  */
 
+import { WebDAVStorage } from './services/WebDAVStorage.js';
 import { ImageService } from './services/ImageService.js';
 import { AuthMiddleware } from './middleware/AuthMiddleware.js';
 
@@ -10,14 +11,14 @@ export default {
     /**
      * 接管 HTTP 请求并返回响应
      * @param {Request} request 原始请求对象
-     * @param {Object} env 环境变量，包含 R2 存储绑定等
+     * @param {Object} env 环境变量，包含 WebDAV 连接配置等
      * @param {Context} ctx 上下文对象
      * @returns {Promise<Response>} 响应对象
      */
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         const path = url.pathname;
-        const imageService = new ImageService(env.MY_BUCKET);
+        const imageService = new ImageService(new WebDAVStorage(env));
 
         // 首页：展示管理后台界面
         if (path === '/' && request.method === 'GET') {
