@@ -492,12 +492,15 @@ export class ImageService {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
             margin-bottom: 3rem;
         }
 
         h1 {
             font-size: 1.875rem;
             font-weight: 600;
+            white-space: nowrap;
             background: linear-gradient(to right, #60a5fa, #a855f7);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -677,8 +680,11 @@ export class ImageService {
             font-size: 0.875rem;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 0.5rem;
             border-radius: 0.5rem;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .btn-sm {
@@ -720,7 +726,10 @@ export class ImageService {
             border-radius: 0.5rem;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 0.5rem;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         /* Modal Styles */
@@ -742,6 +751,9 @@ export class ImageService {
             background: #1e293b;
             width: 100%;
             max-width: 600px;
+            margin: 1rem;
+            max-height: calc(100vh - 2rem);
+            overflow-y: auto;
             border-radius: 1.5rem;
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
@@ -960,6 +972,94 @@ export class ImageService {
         .select-group select:disabled {
             opacity: 0.45;
             cursor: not-allowed;
+        }
+
+        /* 窄屏（手机）适配：头部与筛选栏改为纵向堆叠，控件占满一行 */
+        @media (max-width: 640px) {
+            .container {
+                padding: 1.25rem 1rem;
+            }
+
+            header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 1rem;
+                margin-bottom: 1.75rem;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+                gap: 0.5rem;
+            }
+
+            h1 .logo-icon {
+                width: 28px !important;
+                height: 28px !important;
+            }
+
+            /* showDashboard() 会把 display 改成 flex，这里只调布局 */
+            #header-actions {
+                width: 100%;
+            }
+
+            #header-actions > button {
+                flex: 1;
+                padding: 0.55rem 0.75rem;
+            }
+
+            #login-screen {
+                height: auto;
+                min-height: 60vh;
+            }
+
+            .login-card {
+                padding: 1.75rem 1.25rem;
+            }
+
+            .filter-bar {
+                padding: 1rem;
+                gap: 0.75rem;
+                margin-bottom: 1.5rem;
+            }
+
+            .filter-bar .spacer {
+                display: none;
+            }
+
+            .select-group {
+                width: 100%;
+                gap: 0.5rem;
+            }
+
+            .select-group select {
+                flex: 1;
+                min-width: 0;
+                padding: 0.5rem 0.75rem;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .modal-content {
+                padding: 1.25rem;
+            }
+
+            .modal-header {
+                padding: 1.25rem;
+            }
+
+            .upload-dropzone {
+                padding: 2rem 1rem;
+            }
+
+            .toast {
+                left: 1rem;
+                right: 1rem;
+                bottom: 1rem;
+                text-align: center;
+            }
         }
     </style>
 </head>
