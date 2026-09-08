@@ -455,8 +455,8 @@ export class ImageService {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CF-Photos 管理后台</title>
-    <link rel="icon" href="https://photo.pipi2047.eu.org/i/2026/03/03/ng0c2lb.png">
+    <title>PhotoFlare 管理后台</title>
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNjBhNWZhIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjYTg1NWY3Ii8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0idXJsKCNnKSIvPjxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjQiPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTgiIHI9IjguNCIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTgiIHI9IjMuNSIvPjwvZz48Y2lyY2xlIGN4PSIxOC4yIiBjeT0iMTMuOCIgcj0iMS4xNSIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNC4yIDMuNHExLjEgMy43IDQuOCA0LjgtMy43IDEuMS00LjggNC44LTEuMS0zLjctNC44LTQuOCAzLjctMS4xIDQuOC00LjhaIiBmaWxsPSIjZmZmIi8+PC9zdmc+">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -960,9 +960,16 @@ export class ImageService {
         <header>
             <h1>
                 <svg class="logo-icon" style="width: 32px; height: 32px;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 15V11M12 11L10 13M12 11L14 13M17.65 14.35C18.49 13.92 19.14 13.2 19.5 12.31C19.86 11.42 19.91 10.45 19.64 9.53C19.38 8.61 18.82 7.79 18.06 7.23C17.3 6.67 16.37 6.4 15.45 6.46C15.01 5.4 14.25 4.51 13.28 3.9C12.3 3.3 11.17 3 10 3C8.12 3 6.4 3.93 5.31 5.37C3.96 5.8 2.85 6.78 2.26 8.05C1.67 9.32 1.63 10.77 2.16 12.08C2.69 13.39 3.74 14.44 5.08 14.99" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <!-- 镜头外圈 -->
+                    <circle cx="10.5" cy="13.5" r="7" fill="none" stroke="white" stroke-width="1.8"/>
+                    <!-- 光圈内核 -->
+                    <circle cx="10.5" cy="13.5" r="2.9" fill="none" stroke="white" stroke-width="1.8"/>
+                    <!-- 耀斑鬼影 -->
+                    <circle cx="13.9" cy="10.1" r="1" fill="white"/>
+                    <!-- 星芒耀斑 -->
+                    <path d="M19 1.5Q19.9 4.6 23 5.5Q19.9 6.4 19 9.5Q18.1 6.4 15 5.5Q18.1 4.6 19 1.5Z" fill="white"/>
                 </svg>
-                Photo Cloud
+                PhotoFlare
             </h1>
             <div id="header-actions">
                 <button class="btn-primary" onclick="showUploadModal()">
