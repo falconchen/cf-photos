@@ -1,28 +1,28 @@
 /**
  * 图片服务类
- * 封装与 R2 存储交互的逻辑，遵循单一职责原则
+ * 封装与 WebDAV 存储交互的逻辑，遵循单一职责原则
  */
 export class ImageService {
     /**
      * 构造函数
-     * @param {R2Bucket} bucket Cloudflare R2 Bucket 绑定对象
+     * @param {WebDAVStorage} storage WebDAV 存储对象
      */
-    constructor(bucket) {
-        this.bucket = bucket;
+    constructor(storage) {
+        this.storage = storage;
     }
 
     /**
-     * 根据路径从 R2 中获取图片并构造响应
+     * 根据路径从 WebDAV 中获取图片并构造响应
      * @param {string} path 请求的 URL 路径
      * @returns {Promise<Response>} 响应对象
      */
     async fetchImage(path) {
         try {
-            // R2 的 Key 通常不带开头的斜杠
-            const key = path.startsWith('/') ? path.slice(1) : path;
+            // WebDAV 的 Key 通常不带开头的斜杠
+            const key = decodeURIComponent(path.startsWith('/') ? path.slice(1) : path);
 
-            // 调用 R2 SDK 获取对象
-            const object = await this.bucket.get(key);
+            // 通过 WebDAV 获取对象
+            const object = await this.storage.get(key);
 
             // 如果对象不存在，返回 404
             if (object === null) {
@@ -32,10 +32,10 @@ export class ImageService {
                 });
             }
 
-            // 构造响应头，保留 R2 对象的元数据（如 Content-Type, ETag 等）
+            // 构造响应头，保留 WebDAV 对象的元数据（如 Content-Type, ETag 等）
             const headers = new Headers();
             object.writeHttpMetadata(headers);
-            headers.set('etag', object.httpEtag);
+            if (object.httpEtag) headers.set('etag', object.httpEtag);
 
             // 添加缓存控制（可选，此处暂设为 1 天）
             headers.set('Cache-Control', 'public, max-age=86400');
@@ -129,8 +129,8 @@ export class ImageService {
             const path = this._generateRandomPath(extension);
             const key = path.slice(1);
 
-            // 保存到 R2，直接使用从 multipart 中解析出来的 contentType
-            await this.bucket.put(key, fileBuffer, {
+            // 保存到 WebDAV，直接使用从 multipart 中解析出来的 contentType
+            await this.storage.put(key, fileBuffer, {
                 httpMetadata: {
                     contentType: contentType || 'application/octet-stream',
                 },
@@ -217,7 +217,7 @@ export class ImageService {
             const path = this._generateRandomPath(extension);
             const key = path.slice(1);
 
-            await this.bucket.put(key, fileBuffer, {
+            await this.storage.put(key, fileBuffer, {
                 httpMetadata: {
                     contentType: contentType || 'image/jpeg',
                 },
@@ -252,7 +252,7 @@ export class ImageService {
     }
 
     /**
-     * 上传图片到 R2，使用自动生成的路径
+     * 上传图片到 WebDAV，使用自动生成的路径
      * @param {Request} request 原始请求对象（用于获取域名）
      * @param {ReadableStream} body 图片二进制流
      * @param {string} contentType 图片 MIME 类型
@@ -264,7 +264,7 @@ export class ImageService {
             const path = this._generateRandomPath(extension);
             const key = path.slice(1);
 
-            await this.bucket.put(key, body, {
+            await this.storage.put(key, body, {
                 httpMetadata: {
                     contentType: contentType || 'application/octet-stream',
                 },
@@ -316,13 +316,13 @@ export class ImageService {
     }
 
     /**
-     * 删除 R2 中的图片
-     * @param {string} key 图片在 R2 中的键值
+     * 删除 WebDAV 中的图片
+     * @param {string} key 图片在 WebDAV 中的键值
      * @returns {Promise<Response>}
      */
     async deleteImage(key) {
         try {
-            await this.bucket.delete(key);
+            await this.storage.delete(decodeURIComponent(key));
             return new Response(JSON.stringify({
                 result: 'success',
                 code: 200,
@@ -926,6 +926,7 @@ export class ImageService {
 
     <script>
         let currentCursor = null;
+        let isLoading = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             const token = localStorage.getItem('cf_photo_token');
@@ -1126,46 +1127,79 @@ export class ImageService {
 
         function resetAndLoad() {
             currentCursor = null;
-            document.getElementById('loading').style.display = 'block';
+            const loadingEl = document.getElementById('loading');
+            loadingEl.textContent = '正在加载图片...';
+            loadingEl.style.display = 'block';
             document.getElementById('image-grid').innerHTML = '';
+            document.getElementById('load-more').style.display = 'none';
             loadImages();
         }
 
+        /**
+         * 拉取图片列表。
+         * WebDAV 按目录逐级扫描，某一页可能没有文件却仍带下一页游标，
+         * 因此这里自动继续请求，避免界面误显示为“没有图片”。
+         * @param {boolean} append 是否追加到现有列表（“加载更多”）
+         */
         async function loadImages(append = false) {
-            const token = localStorage.getItem('cf_photo_token');
-            const url = new URL('/admin/list', location.origin);
-            url.searchParams.set('limit', 12);
-            
-            const year = document.getElementById('year-select').value;
-            if (year) url.searchParams.set('year', year);
+            if (isLoading) return;
+            isLoading = true;
 
-            if (append && currentCursor) {
-                url.searchParams.set('cursor', currentCursor);
-            }
+            const token = localStorage.getItem('cf_photo_token');
+            const year = document.getElementById('year-select').value;
+            const loadingEl = document.getElementById('loading');
+            const loadMoreBtn = document.querySelector('#load-more button');
+            if (loadMoreBtn) loadMoreBtn.disabled = true;
+            if (!append) currentCursor = null;
+            let received = 0;
 
             try {
-                const res = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
+                // 最多自动翻 20 页空结果，防止极端目录结构下无限请求
+                for (let page = 0; page < 20; page++) {
+                    const url = new URL('/admin/list', location.origin);
+                    url.searchParams.set('limit', 12);
+                    if (year) url.searchParams.set('year', year);
+                    if (currentCursor) url.searchParams.set('cursor', currentCursor);
 
-                if (res.status === 401) {
-                    localStorage.removeItem('cf_photo_token');
-                    location.reload();
-                    return;
+                    const res = await fetch(url, {
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+
+                    if (res.status === 401) {
+                        localStorage.removeItem('cf_photo_token');
+                        location.reload();
+                        return;
+                    }
+
+                    const data = await res.json();
+                    if (data.result !== 'success') {
+                        alert('获取失败: ' + data.message);
+                        return;
+                    }
+
+                    renderImages(data.data.images, append || received > 0);
+                    received += data.data.images.length;
+                    currentCursor = data.data.cursor;
+
+                    // 本页已有结果，或远端确实没有更多目录可扫，就停止
+                    if (received > 0 || !currentCursor) break;
+                    loadingEl.textContent = '正在扫描目录...';
+                    loadingEl.style.display = 'block';
                 }
 
-                const data = await res.json();
-                if (data.result === 'success') {
-                    renderImages(data.data.images, append);
-                    currentCursor = data.data.cursor;
-                    document.getElementById('load-more').style.display = currentCursor ? 'block' : 'none';
-                    document.getElementById('loading').style.display = 'none';
+                document.getElementById('load-more').style.display = currentCursor ? 'block' : 'none';
+                if (received === 0 && !append) {
+                    loadingEl.textContent = currentCursor ? '本次扫描未找到图片，可点击“加载更多”继续' : '暂无图片';
+                    loadingEl.style.display = 'block';
                 } else {
-                    alert('获取失败: ' + data.message);
+                    loadingEl.style.display = 'none';
                 }
             } catch (e) {
                 console.error(e);
                 alert('网络请求出错');
+            } finally {
+                isLoading = false;
+                if (loadMoreBtn) loadMoreBtn.disabled = false;
             }
         }
 
@@ -1292,7 +1326,7 @@ export class ImageService {
     }
 
     /**
-     * 生成年份下拉选项 (从 R2 动态查询)
+     * 生成年份下拉选项 (从 WebDAV 动态查询)
      * @private
      */
     async _generateYearOptions() {
@@ -1301,7 +1335,7 @@ export class ImageService {
 
         try {
             // 使用 delimiter 尝试列出一级目录 (最快)
-            const listed = await this.bucket.list({
+            const listed = await this.storage.list({
                 prefix: 'i/',
                 delimiter: '/'
             });
@@ -1329,7 +1363,7 @@ export class ImageService {
 
 
     /**
-     * 获取 R2 中的图片列表
+     * 获取 WebDAV 中的图片列表
      * @param {Request} request 原始请求对象 (用于拼接完整 URL)
      * @param {number} limit 每次获取的数量限制
      * @param {string} cursor 分页游标
@@ -1362,13 +1396,13 @@ export class ImageService {
                 options.cursor = cursor;
             }
 
-            const listed = await this.bucket.list(options);
+            const listed = await this.storage.list(options);
             const urlObj = new URL(request.url);
             const domain = `${urlObj.protocol}//${urlObj.host}`;
 
             const images = listed.objects.map(obj => ({
                 key: obj.key,
-                url: `${domain}/${obj.key}`,
+                url: `${domain}/${obj.key.split('/').map(encodeURIComponent).join('/')}`,
                 size: obj.size,
                 uploaded: obj.uploaded,
                 httpMetadata: obj.httpMetadata
@@ -1425,7 +1459,7 @@ export class ImageService {
     }
 
     /**
-     * 上传图片到 R2 (保持原有的手动路径上传)
+     * 上传图片到 WebDAV (保持原有的手动路径上传)
      * @param {string} path 图片存储路径
      * @param {ReadableStream} body 图片二进制流
      * @param {string} contentType 图片 MIME 类型
@@ -1433,10 +1467,10 @@ export class ImageService {
      */
     async uploadImage(path, body, contentType) {
         try {
-            const key = path.startsWith('/') ? path.slice(1) : path;
+            const key = decodeURIComponent(path.startsWith('/') ? path.slice(1) : path);
 
             // 执行上传
-            await this.bucket.put(key, body, {
+            await this.storage.put(key, body, {
                 httpMetadata: {
                     contentType: contentType || 'application/octet-stream',
                 },
