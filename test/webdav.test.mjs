@@ -69,6 +69,23 @@ test('多级目录分页没有重复遗漏，保留 XML 实体和编码文件名
     await assert.rejects(storage.list({ prefix: 'i/../' }));
 });
 
+test('默认请求函数以全局身份调用 fetch，而不是以存储实例', async () => {
+    // 直接把 fetch 存成实例属性会让 this 指向 WebDAVStorage，workerd 抛 Illegal invocation。
+    const original = globalThis.fetch;
+    let receiver = 'unset';
+    globalThis.fetch = function () {
+        receiver = this;
+        return new Response(null, { status: 404 });
+    };
+    try {
+        const storage = new WebDAVStorage(env);
+        assert.equal(await storage.get('i/a.png'), null);
+        assert.ok(receiver === undefined || receiver === globalThis, 'fetch 的 this 不能是存储实例');
+    } finally {
+        globalThis.fetch = original;
+    }
+});
+
 test('缺失目录为空列表，非法 XML 被拒绝', async () => {
     assert.deepEqual((await new WebDAVStorage(env, async () => new Response(null, { status: 404 })).list()).objects, []);
     await assert.rejects(new WebDAVStorage(env, async () => new Response('<html/>', { status: 207 })).list(), /无效/);

@@ -9,7 +9,8 @@ const properties = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:r
 
 /** WebDAV 存储；所有键限制在配置根目录的 i/ 下。 */
 export class WebDAVStorage {
-    constructor(env, request = fetch) {
+    // 默认请求函数必须包一层：直接存 fetch 会让 this 变成本实例，workerd 拒绝并抛 Illegal invocation。
+    constructor(env, request = (...args) => fetch(...args)) {
         this.env = env;
         this.request = request;
     }
@@ -51,8 +52,9 @@ export class WebDAVStorage {
                 signal: AbortSignal.timeout(30000),
                 ...(options.body instanceof ReadableStream ? { duplex: 'half' } : {}),
             });
-        } catch {
-            throw new Error('WebDAV 请求失败或超时');
+        } catch (error) {
+            // 消息会回传给客户端，细节只挂在 cause 上供日志排查。
+            throw new Error('WebDAV 请求失败或超时', { cause: error });
         }
     }
 
