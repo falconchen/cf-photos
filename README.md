@@ -60,8 +60,8 @@ curl -X POST --data-binary "@photo.jpg" \
   "result": "success",
   "code": 200,
   "srcName": "original_filename.jpg",
-  "path": "/i/2026/02/25/random7.jpg",
-  "url": "https://domain.com/i/2026/02/25/random7.jpg",
+  "path": "/i/2026/02/25/FHZ9LuQq.jpg",
+  "url": "https://domain.com/i/2026/02/25/FHZ9LuQq.jpg",
   "del": "",
   "thumb": ""
 }
@@ -144,6 +144,8 @@ curl -X POST --data-binary "@wang.jpeg" \
 `WEBDAV_URL` 必须是 HTTPS 根地址，例如 `https://example.com/dav`。图片 `/i/2026/09/08/example.png` 对应远端 `/dav/i/2026/09/08/example.png`。上传会逐级创建缺失目录；本地开发也会读写真实 WebDAV。
 
 `AUTH_TOKEN` 用于保护应用上传、列表和删除接口；与 WebDAV 密码相互独立。WebDAV 凭据只由 Worker 发送给配置的服务，不发给浏览器。请始终设置管理 Token。
+
+`TIMEZONE_OFFSET` 决定上传路径 `/i/YYYY/MM/DD/` 的日期和文件名中的时间，默认 `8`（东八区），支持 `5.5`、`-3` 这类取值（范围 -12 ~ 14），留空或非法时回退到 8。它不是敏感信息，配置在 `wrangler.toml` 的 `[vars]` 里，改完重新 `npm run deploy` 生效；本地可在 `.dev.vars` 中覆盖。Workers 运行时时区恒为 UTC，所有本地时间都由该偏移换算得出。
 
 ### 部署
 

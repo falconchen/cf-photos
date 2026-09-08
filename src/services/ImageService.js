@@ -2,13 +2,116 @@
  * 图片服务类
  * 封装与 WebDAV 存储交互的逻辑，遵循单一职责原则
  */
+
+// Base60 字符表：0-9、A-Z、a-x（去掉 y、z 以凑满 60 个字符）
+const BASE60 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx';
+
+// 未配置 TIMEZONE_OFFSET 时使用的默认时区偏移（东八区）
+const DEFAULT_TIMEZONE_OFFSET = 8;
+
+/**
+ * 解析环境变量中的时区偏移，非法值回退到默认值
+ * Workers 运行时恒为 UTC，故所有本地时间都由该偏移换算得出
+ * @param {string|number|undefined} value 环境变量 TIMEZONE_OFFSET 的原始值
+ * @returns {number} 合法的时区偏移（小时，允许 0.5/0.75 等半时区）
+ */
+function parseTimezoneOffset(value) {
+    if (value === undefined || value === null || value === '') {
+        return DEFAULT_TIMEZONE_OFFSET;
+    }
+
+    const offset = Number(value);
+    if (!Number.isFinite(offset) || offset < -12 || offset > 14) {
+        console.warn(`[Config] TIMEZONE_OFFSET 非法："${value}"，回退到 ${DEFAULT_TIMEZONE_OFFSET}`);
+        return DEFAULT_TIMEZONE_OFFSET;
+    }
+
+    return offset;
+}
+
+/**
+ * 将数值编码为定长 Base60 字符串（高位在前，不足补 '0'）
+ * @param {number} value 待编码的非负整数
+ * @param {number} length 输出长度
+ * @returns {string} 定长 Base60 字符串
+ */
+function encodeBase60Fixed(value, length) {
+    let result = '';
+
+    for (let i = 0; i < length; i++) {
+        result = BASE60[value % 60] + result;
+        value = Math.floor(value / 60);
+    }
+
+    return result;
+}
+
+/**
+ * 生成指定长度的 Base60 随机串（使用 crypto 强随机）
+ * @param {number} [length=3] 随机串长度
+ * @returns {string} Base60 随机串
+ */
+function randomBase60(length = 3) {
+    let result = '';
+
+    while (result.length < length) {
+        const bytes = new Uint8Array(length - result.length);
+        crypto.getRandomValues(bytes);
+
+        for (const byte of bytes) {
+            // 240 = 60 × 4，避免取模偏差
+            if (byte < 240) {
+                result += BASE60[byte % 60];
+
+                if (result.length === length) {
+                    break;
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
+/**
+ * 生成基于时间的 8 位 Base60 ID：时分秒(3) + 毫秒(2) + 随机(3)
+ * @param {Date} [date=new Date()] 基准时间
+ * @param {number} [timezoneOffset=DEFAULT_TIMEZONE_OFFSET] 时区偏移（小时）
+ * @returns {string} 8 位 Base60 ID
+ */
+function generateTimeId(date = new Date(), timezoneOffset = DEFAULT_TIMEZONE_OFFSET) {
+    const local = new Date(
+        date.getTime() + timezoneOffset * 60 * 60 * 1000
+    );
+
+    return (
+        BASE60[local.getUTCHours()] +
+        BASE60[local.getUTCMinutes()] +
+        BASE60[local.getUTCSeconds()] +
+        encodeBase60Fixed(local.getUTCMilliseconds(), 2) +
+        randomBase60(3)
+    );
+}
+
 export class ImageService {
     /**
      * 构造函数
      * @param {WebDAVStorage} storage WebDAV 存储对象
+     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET
      */
-    constructor(storage) {
+    constructor(storage, env = {}) {
         this.storage = storage;
+        this.timezoneOffset = parseTimezoneOffset(env?.TIMEZONE_OFFSET);
+    }
+
+    /**
+     * 按配置的时区偏移换算出的"当前本地时间"
+     * 返回的 Date 需用 getUTC* 系列方法读取，避免二次时区换算
+     * @returns {Date} 偏移后的时间对象
+     * @private
+     */
+    _localNow() {
+        return new Date(Date.now() + this.timezoneOffset * 60 * 60 * 1000);
     }
 
     /**
@@ -296,23 +399,18 @@ export class ImageService {
     }
 
     /**
-     * 生成随机存储路径 /i/YYYY/MM/DD/random7.ext
+     * 生成时间序存储路径 /i/YYYY/MM/DD/<8位Base60ID>.ext
+     * 日期目录与文件名同用 TIMEZONE_OFFSET 换算，保证两者始终一致
      * @param {string} extension 扩展名
      * @private
      */
     _generateRandomPath(extension) {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
+        const local = this._localNow();
+        const year = local.getUTCFullYear();
+        const month = String(local.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(local.getUTCDate()).padStart(2, '0');
 
-        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-        let randomBase = '';
-        for (let i = 0; i < 7; i++) {
-            randomBase += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-
-        return `/i/${year}/${month}/${day}/${randomBase}${extension}`;
+        return `/i/${year}/${month}/${day}/${generateTimeId(new Date(), this.timezoneOffset)}${extension}`;
     }
 
     /**
@@ -479,6 +577,12 @@ export class ImageService {
         /* Dashboard */
         #dashboard {
             display: none;
+        }
+
+        /* 未鉴权时隐藏；showDashboard() 会改成 flex */
+        #header-actions {
+            display: none;
+            gap: 0.75rem;
         }
 
         .grid {
@@ -860,7 +964,7 @@ export class ImageService {
                 </svg>
                 Photo Cloud
             </h1>
-            <div id="header-actions" style="display: none; display: flex; gap: 0.75rem;">
+            <div id="header-actions">
                 <button class="btn-primary" onclick="showUploadModal()">
                     <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     上传图片
@@ -1331,7 +1435,7 @@ export class ImageService {
      */
     async _generateYearOptions() {
         const foundYears = new Set();
-        const currentYear = new Date().getFullYear();
+        const currentYear = this._localNow().getUTCFullYear();
 
         try {
             // 使用 delimiter 尝试列出一级目录 (最快)

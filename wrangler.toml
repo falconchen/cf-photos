@@ -2,3 +2,7 @@ name = "cf-photos"
 main = "src/index.js"
 compatibility_date = "2024-04-03"
 
+[vars]
+# 生成图片路径与文件名时使用的时区偏移（小时，支持 5.5 这类半时区）
+# 留空或非法时回退到 8（东八区）；Workers 运行时恒为 UTC
+TIMEZONE_OFFSET = "8"

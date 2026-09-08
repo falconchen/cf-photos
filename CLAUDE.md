@@ -18,7 +18,7 @@ There is no linter or build step. Tests are plain `.mjs` files under `test/` usi
 
 ## Configuration
 
-Local secrets live in `.dev.vars` (git-ignored; `cp .dev.vars.example .dev.vars` then `chmod 600`). Required vars: `WEBDAV_URL` (credential-free, query-free HTTPS root, e.g. `https://example.com/dav`), `WEBDAV_USERNAME`, `WEBDAV_PASSWORD`, `AUTH_TOKEN`. In production these are set individually via `npx wrangler secret put <NAME>`; `.dev.vars` is never deployed.
+Local secrets live in `.dev.vars` (git-ignored; `cp .dev.vars.example .dev.vars` then `chmod 600`). Required vars: `WEBDAV_URL` (credential-free, query-free HTTPS root, e.g. `https://example.com/dav`), `WEBDAV_USERNAME`, `WEBDAV_PASSWORD`, `AUTH_TOKEN`. Optional: `TIMEZONE_OFFSET` (hours, default 8) — non-secret, lives in `wrangler.toml` `[vars]`, overridable in `.dev.vars`. In production these are set individually via `npx wrangler secret put <NAME>`; `.dev.vars` is never deployed.
 
 `AUTH_TOKEN` guards the app's upload/list/delete endpoints and is independent of the WebDAV password. If `AUTH_TOKEN` is unset, `AuthMiddleware` fails open (no auth) — always set it.
 
@@ -37,7 +37,7 @@ Single Cloudflare Worker. `src/index.js` is a hand-rolled router (path + method 
 - `put()` creates each missing parent dir via `MKCOL` (tolerating 405), then re-verifies via `PROPFIND` that a 405 was a real directory and not a same-named file.
 - WebDAV has no snapshot pagination. `list()` does a Depth:1 walk, encoding a base64 JSON cursor `{ prefix, dirs, after }` (queue of pending dirs + last-seen file). Each call scans ≤35 directories and **may legitimately return an empty `objects` array with a non-null `cursor`** — callers must keep following the cursor.
 
-`src/services/ImageService.js` (~1500 lines) — all business logic: the three upload paths (multipart, JSON/base64, raw binary), date-based random path generation (`/i/YYYY/MM/DD/<7-random-chars><ext>`), MIME↔extension mapping, image fetch (passes through remote `Content-Type` / `ETag` / `Last-Modified`, caches 1 day), delete, `listImages` (auto-follows empty-but-cursor pages up to ~20 rounds so deep dirs aren't shown as "no images"), and `renderDashboard()` which returns the entire admin UI as an inline HTML string.
+`src/services/ImageService.js` (~1500 lines) — all business logic: the three upload paths (multipart, JSON/base64, raw binary), date-based path generation (`/i/YYYY/MM/DD/<8-char-base60-time-id><ext>` — 时分秒各 1 位 + 毫秒 2 位 + crypto 随机 3 位；目录日期与文件名时间同用 `TIMEZONE_OFFSET`，故 `ImageService` 的构造函数接收 `env` 作为第二个参数), MIME↔extension mapping, image fetch (passes through remote `Content-Type` / `ETag` / `Last-Modified`, caches 1 day), delete, `listImages` (auto-follows empty-but-cursor pages up to ~20 rounds so deep dirs aren't shown as "no images"), and `renderDashboard()` which returns the entire admin UI as an inline HTML string.
 
 `src/middleware/AuthMiddleware.js` — static `Bearer` token check. Upload endpoints also accept the token as a `token` form/JSON field (for uPic and similar clients).
 
