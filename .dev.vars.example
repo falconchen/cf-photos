@@ -2,3 +2,5 @@ AUTH_TOKEN=replace-with-a-long-random-token
 WEBDAV_URL=https://example.com/dav
 WEBDAV_USERNAME=your-username
 WEBDAV_PASSWORD=your-password
+# 可选：图片路径的时区偏移（小时），默认 8；本地覆盖 wrangler.toml 中的同名 vars
+TIMEZONE_OFFSET=8

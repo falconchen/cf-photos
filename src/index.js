@@ -18,7 +18,7 @@ export default {
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         const path = url.pathname;
-        const imageService = new ImageService(new WebDAVStorage(env));
+        const imageService = new ImageService(new WebDAVStorage(env), env);
 
         // 首页：展示管理后台界面
         if (path === '/' && request.method === 'GET') {
