@@ -1,6 +1,9 @@
 node_modules
 .dev.vars
+.dev.vars.*
+!.dev.vars.example
 .wrangler
 dist
 *.log
+*.sw[a-p]
 .DS_Store
