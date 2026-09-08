@@ -16,11 +16,16 @@
 ### 上传图片
 本项目支持三种上传方式,适配 uPic、curl 等多种客户端。所有上传接口均位于 `/upload`。
 
+> **大小限制**：Multipart 与 JSON(Base64) 会把整个文件读进 Worker 内存，上限 **20 MB**，超出返回 413；这两种方式还要求带 `Content-Length`，分块传输返回 411。二进制流式上传（裸二进制 `POST` / `PUT /i/...`）不经过内存、**不受此限制**，只受 Cloudflare 套餐的请求体上限约束（Free/Pro 100 MB、Business 200 MB、Enterprise 更高，超限由边缘直接返回 413）。
+>
+> 20 MB 覆盖除 ProRAW 外的全部 iPhone 原图（12MP HEIC 约 2~4 MB、48MP HEIF Max 约 6~8 MB、全景图 10~25 MB）。ProRAW（12MP 约 25 MB、48MP 约 75 MB）**只能走流式上传**。
+
 #### 1. Multipart (表单) 上传 (推荐,uPic 默认)
 最常用的上传方式,支持原始文件名保持。
 - **URL**: `POST /upload`
 - **文件字段名**: `image` 或 `file`
 - **其他字段**: 可选 `token` 用于鉴权
+- **大小上限**: 20 MB
 - **示例 (curl)**:
 ```bash
 curl -X POST -F "image=@photo.jpg" \
@@ -43,6 +48,7 @@ curl -X POST -H "Content-Type: application/json" \
 #### 3. 二进制流上传
 直接将图片二进制数据放在请求体中发送。
 - **URL**: `POST /upload` 或 `PUT /i/{year}/{month}/{day}/{filename}` (PUT 方式支持自定义路径)
+- **大小上限**: 无 20 MB 限制,body 流式透传给 WebDAV,大文件请用这种方式
 - **示例 (curl)**:
 ```bash
 curl -X POST --data-binary "@photo.jpg" \
