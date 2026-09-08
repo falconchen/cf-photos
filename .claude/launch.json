@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cf-photos",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--ip", "127.0.0.1"],
+      "port": 8787
+    }
+  ]
+}
