@@ -481,6 +481,12 @@ export class ImageService {
             display: none;
         }
 
+        /* 未鉴权时隐藏；showDashboard() 会改成 flex */
+        #header-actions {
+            display: none;
+            gap: 0.75rem;
+        }
+
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -860,7 +866,7 @@ export class ImageService {
                 </svg>
                 Photo Cloud
             </h1>
-            <div id="header-actions" style="display: none; display: flex; gap: 0.75rem;">
+            <div id="header-actions">
                 <button class="btn-primary" onclick="showUploadModal()">
                     <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                     上传图片
