@@ -69,6 +69,57 @@ test('多级目录分页没有重复遗漏，保留 XML 实体和编码文件名
     await assert.rejects(storage.list({ prefix: 'i/../' }));
 });
 
+test('倒序遍历跨年月日从新到旧，与正序互为逆序且不重不漏', async () => {
+    // 两年两月，日目录内多文件，用于同时覆盖目录顺序与目录内文件顺序。
+    const tree = {
+        'i/': [item('i/', true), item('i/2025/', true), item('i/2026/', true)],
+        'i/2025/': [item('i/2025/', true), item('i/2025/12/', true)],
+        'i/2025/12/': [item('i/2025/12/', true), item('i/2025/12/31/', true)],
+        'i/2025/12/31/': [item('i/2025/12/31/', true), item('i/2025/12/31/A1.png'), item('i/2025/12/31/z9.png')],
+        'i/2026/': [item('i/2026/', true), item('i/2026/01/', true), item('i/2026/09/', true)],
+        'i/2026/01/': [item('i/2026/01/', true), item('i/2026/01/02/', true)],
+        'i/2026/01/02/': [item('i/2026/01/02/', true), item('i/2026/01/02/b.png')],
+        'i/2026/09/': [item('i/2026/09/', true), item('i/2026/09/08/', true)],
+        'i/2026/09/08/': [item('i/2026/09/08/', true), item('i/2026/09/08/0a.png'), item('i/2026/09/08/Zz.png'), item('i/2026/09/08/m5.png')],
+    };
+    const storage = new WebDAVStorage(env, async (url) => xml(tree[url.pathname.slice('/dav/'.length)]));
+    // limit 小于单个日目录的文件数，强制在目录内部分页，检验 after 的方向处理。
+    const walk = async order => {
+        const keys = [];
+        let cursor;
+        do {
+            const result = await storage.list({ limit: 2, cursor, order });
+            keys.push(...result.objects.map(o => o.key));
+            cursor = result.cursor;
+        } while (cursor);
+        return keys;
+    };
+
+    const ascending = await walk('asc');
+    const descending = await walk('desc');
+    assert.deepEqual(ascending, [
+        'i/2025/12/31/A1.png', 'i/2025/12/31/z9.png',
+        'i/2026/01/02/b.png',
+        'i/2026/09/08/0a.png', 'i/2026/09/08/Zz.png', 'i/2026/09/08/m5.png',
+    ]);
+    // 日目录内按文件名 ASCII 降序（'m' > 'Z' > '0'），目录本身也从新到旧。
+    assert.deepEqual(descending, [...ascending].reverse());
+    assert.equal(new Set(descending).size, descending.length);
+});
+
+test('分页游标绑定排序方向，换方向续翻被拒绝', async () => {
+    const tree = {
+        'i/': [item('i/', true), item('i/2026/', true)],
+        'i/2026/': [item('i/2026/', true), item('i/2026/a.png'), item('i/2026/b.png')],
+    };
+    const storage = new WebDAVStorage(env, async (url) => xml(tree[url.pathname.slice('/dav/'.length)]));
+    const { cursor } = await storage.list({ limit: 1, order: 'asc' });
+    assert.ok(cursor);
+    await assert.rejects(storage.list({ limit: 1, cursor, order: 'desc' }), /分页游标/);
+    // 同方向续翻仍然正常
+    assert.deepEqual((await storage.list({ limit: 1, cursor, order: 'asc' })).objects.map(o => o.key), ['i/2026/b.png']);
+});
+
 test('默认请求函数以全局身份调用 fetch，而不是以存储实例', async () => {
     // 直接把 fetch 存成实例属性会让 this 指向 WebDAVStorage，workerd 抛 Illegal invocation。
     const original = globalThis.fetch;

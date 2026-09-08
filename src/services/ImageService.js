@@ -447,8 +447,6 @@ export class ImageService {
      * @returns {Promise<Response>}
      */
     async renderDashboard() {
-        const yearOptions = await this._generateYearOptions();
-
         const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -927,9 +925,14 @@ export class ImageService {
             border-radius: 1rem;
             margin-bottom: 2rem;
             display: flex;
-            gap: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem 1.5rem;
             align-items: center;
             border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .filter-bar .spacer {
+            flex: 1;
         }
 
         .select-group {
@@ -952,6 +955,11 @@ export class ImageService {
             border-radius: 0.5rem;
             outline: none;
             cursor: pointer;
+        }
+
+        .select-group select:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
         }
     </style>
 </head>
@@ -999,10 +1007,26 @@ export class ImageService {
                 <div class="filter-bar">
                     <div class="select-group">
                         <svg style="width: 16px; height: 16px; color: var(--text-dim);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                        <label for="year-select">年份筛选:</label>
-                        <select id="year-select" onchange="resetAndLoad()">
-                            <option value="">全部</option>
-                            ${yearOptions}
+                        <label for="year-select">日期筛选:</label>
+                        <select id="year-select" onchange="onYearChange()">
+                            <option value="">全部年份</option>
+                        </select>
+                    </div>
+                    <div class="select-group">
+                        <select id="month-select" onchange="onMonthChange()" disabled>
+                            <option value="">全部月份</option>
+                        </select>
+                        <select id="day-select" onchange="resetAndLoad()" disabled>
+                            <option value="">全部日期</option>
+                        </select>
+                    </div>
+                    <div class="spacer"></div>
+                    <div class="select-group">
+                        <svg style="width: 16px; height: 16px; color: var(--text-dim);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9M3 12h5m5 8V8m0 12l-3-3m3 3l3-3"></path></svg>
+                        <label for="order-select">排序:</label>
+                        <select id="order-select" onchange="resetAndLoad()">
+                            <option value="desc">最新在前</option>
+                            <option value="asc">最早在前</option>
                         </select>
                     </div>
                 </div>
@@ -1065,6 +1089,7 @@ export class ImageService {
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('dashboard').style.display = 'block';
             document.getElementById('header-actions').style.display = 'flex'; // 修正为 flex 以配合新增按钮
+            loadDirOptions('year');
             loadImages();
         }
 
@@ -1213,14 +1238,15 @@ export class ImageService {
 
                     showToast('上传成功: ' + file.name);
 
-                    // 直接将新上传的图片插入到列表最前面
+                    // 按当前排序方向插入：最新在前放头部，最早在前放尾部
                     const newImage = {
                         key: data.path.startsWith('/') ? data.path.slice(1) : data.path,
                         url: data.url,
                         size: file.size,
                         uploaded: new Date().toISOString()
                     };
-                    renderImages([newImage], true, true);
+                    const newestFirst = document.getElementById('order-select').value !== 'asc';
+                    renderImages([newImage], !newestFirst, newestFirst);
                 } else {
                     statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
                     statusText.className = 'upload-item-status status-error';
@@ -1234,6 +1260,70 @@ export class ImageService {
                 // 上传完毕后一段时间清理 URL 对象释放内存（可选，但通常推荐）
                 // setTimeout(() => URL.revokeObjectURL(previewUrl), 10000);
             }
+        }
+
+        /**
+         * 填充年 / 月 / 日下拉框，只列出 WebDAV 中真实存在的目录。
+         * 上级未选具体值时，下级没有可筛选的范围，直接清空并禁用。
+         * @param {'year'|'month'|'day'} level 需要重新填充的层级
+         */
+        async function loadDirOptions(level) {
+            const token = localStorage.getItem('cf_photo_token');
+            const yearEl = document.getElementById('year-select');
+            const monthEl = document.getElementById('month-select');
+            const dayEl = document.getElementById('day-select');
+
+            const target = { year: yearEl, month: monthEl, day: dayEl }[level];
+            const placeholder = { year: '全部年份', month: '全部月份', day: '全部日期' }[level];
+            const suffix = { year: '年', month: '月', day: '日' }[level];
+
+            target.innerHTML = '<option value="">' + placeholder + '</option>';
+            target.value = '';
+
+            const parentChosen = level === 'year' || (level === 'month' ? yearEl.value : monthEl.value);
+            if (!parentChosen) {
+                target.disabled = true;
+                return;
+            }
+
+            const url = new URL('/admin/dirs', location.origin);
+            if (level !== 'year') url.searchParams.set('year', yearEl.value);
+            if (level === 'day') url.searchParams.set('month', monthEl.value);
+
+            let dirs = [];
+            try {
+                const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+                if (res.status === 401) {
+                    localStorage.removeItem('cf_photo_token');
+                    location.reload();
+                    return;
+                }
+                const data = await res.json();
+                if (data.result === 'success') dirs = data.data.dirs;
+            } catch (e) {
+                console.error(e);
+            }
+
+            dirs.forEach(d => {
+                const option = document.createElement('option');
+                option.value = d;
+                option.textContent = d + suffix;
+                target.appendChild(option);
+            });
+            target.disabled = dirs.length === 0;
+        }
+
+        // 年份变化：重填月份、清空日期，再刷新列表
+        async function onYearChange() {
+            await loadDirOptions('month');
+            await loadDirOptions('day');
+            resetAndLoad();
+        }
+
+        // 月份变化：重填日期，再刷新列表
+        async function onMonthChange() {
+            await loadDirOptions('day');
+            resetAndLoad();
         }
 
         function resetAndLoad() {
@@ -1258,6 +1348,9 @@ export class ImageService {
 
             const token = localStorage.getItem('cf_photo_token');
             const year = document.getElementById('year-select').value;
+            const month = document.getElementById('month-select').value;
+            const day = document.getElementById('day-select').value;
+            const order = document.getElementById('order-select').value;
             const loadingEl = document.getElementById('loading');
             const loadMoreBtn = document.querySelector('#load-more button');
             if (loadMoreBtn) loadMoreBtn.disabled = true;
@@ -1269,7 +1362,10 @@ export class ImageService {
                 for (let page = 0; page < 20; page++) {
                     const url = new URL('/admin/list', location.origin);
                     url.searchParams.set('limit', 12);
+                    url.searchParams.set('order', order);
                     if (year) url.searchParams.set('year', year);
+                    if (year && month) url.searchParams.set('month', month);
+                    if (year && month && day) url.searchParams.set('day', day);
                     if (currentCursor) url.searchParams.set('cursor', currentCursor);
 
                     const res = await fetch(url, {
@@ -1437,39 +1533,84 @@ export class ImageService {
     }
 
     /**
-     * 生成年份下拉选项 (从 WebDAV 动态查询)
+     * 列出某个前缀下的一级子目录名，降序返回
+     * @param {string} prefix 目录前缀，如 'i/' 或 'i/2026/'
+     * @param {RegExp} pattern 用于从完整前缀中提取目录名的正则，需含一个捕获组
+     * @returns {Promise<string[]>} 降序排列的目录名数组；查询失败时返回空数组
      * @private
      */
-    async _generateYearOptions() {
-        const foundYears = new Set();
-        const currentYear = this._localNow().getUTCFullYear();
+    async _listSubdirs(prefix, pattern) {
+        const found = new Set();
 
         try {
-            // 使用 delimiter 尝试列出一级目录 (最快)
-            const listed = await this.storage.list({
-                prefix: 'i/',
-                delimiter: '/'
+            // 使用 delimiter 列出一级目录 (最快)
+            const listed = await this.storage.list({ prefix, delimiter: '/' });
+
+            (listed.delimitedPrefixes || []).forEach(p => {
+                const match = p.match(pattern);
+                if (match) found.add(match[1]);
             });
-
-            if (listed.delimitedPrefixes) {
-                listed.delimitedPrefixes.forEach(p => {
-                    const match = p.match(/i\/(\d{4})\//);
-                    if (match) foundYears.add(match[1]);
-                });
-            }
         } catch (error) {
-            console.error('动态发现年份失败:', error);
+            console.error(`动态发现目录失败 (${prefix}):`, error.message);
         }
 
-        // 转换为排序后的数组
-        const sortedYears = Array.from(foundYears).sort((a, b) => b - a);
+        // 目录名都是等宽零填充的数字，直接字符串降序即可
+        return Array.from(found).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+    }
 
-        // 兜底: 如果没有发现年份，至少显示当前年份
-        if (sortedYears.length === 0) {
-            sortedYears.push(currentYear.toString());
+    /**
+     * 管理接口：列出可用于筛选的年 / 月 / 日目录
+     * 不传参数返回年份；传 year 返回该年的月份；传 year + month 返回该月的日期。
+     * @param {string} year 年份 (可选)
+     * @param {string} month 月份 (可选，需同时提供 year)
+     * @returns {Promise<Response>} 响应对象，data.dirs 为降序目录名数组
+     */
+    async listDirs(year = null, month = null) {
+        let prefix = 'i/';
+        let pattern = /i\/(\d{4})\/$/;
+
+        if (year) {
+            if (!/^\d{4}$/.test(year)) return this._badRequest('年份格式不正确');
+            prefix += `${year}/`;
+            pattern = new RegExp(`^i/${year}/(\\d{2})/$`);
+
+            if (month) {
+                const paddedMonth = month.padStart(2, '0');
+                if (!this._validPart(paddedMonth, 1, 12)) return this._badRequest('月份格式不正确');
+                prefix += `${paddedMonth}/`;
+                pattern = new RegExp(`^i/${year}/${paddedMonth}/(\\d{2})/$`);
+            }
         }
 
-        return sortedYears.map(y => `<option value="${y}">${y}年</option>`).join('');
+        return new Response(JSON.stringify({
+            result: 'success',
+            code: 200,
+            data: { dirs: await this._listSubdirs(prefix, pattern) }
+        }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        });
+    }
+
+    /**
+     * 校验两位数字的月份 / 日期是否在合法区间内
+     * @private
+     */
+    _validPart(value, min, max) {
+        if (!/^\d{2}$/.test(value)) return false;
+        const num = Number(value);
+        return num >= min && num <= max;
+    }
+
+    /**
+     * 构造 400 错误响应
+     * @private
+     */
+    _badRequest(message) {
+        return new Response(JSON.stringify({ result: 'error', code: 400, message }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        });
     }
 
 
@@ -1481,18 +1622,24 @@ export class ImageService {
      * @param {string} year 年份 (可选)
      * @param {string} month 月份 (可选)
      * @param {string} day 日期 (可选)
+     * @param {string} order 排序方向 'desc' 最新在前 (默认) / 'asc' 最早在前
      * @returns {Promise<Response>} 响应对象，包含图片列表和分页信息
      */
-    async listImages(request, limit = 50, cursor = null, year = null, month = null, day = null) {
+    async listImages(request, limit = 50, cursor = null, year = null, month = null, day = null, order = 'desc') {
         try {
-            // 根据年份、月份和日期构造前缀
+            // 根据年份、月份和日期构造前缀；月依赖年、日依赖月
             let prefix = 'i/';
             if (year) {
+                if (!/^\d{4}$/.test(year)) return this._badRequest('年份格式不正确');
                 prefix += `${year}/`;
                 if (month) {
-                    prefix += `${month.padStart(2, '0')}/`;
+                    const paddedMonth = month.padStart(2, '0');
+                    if (!this._validPart(paddedMonth, 1, 12)) return this._badRequest('月份格式不正确');
+                    prefix += `${paddedMonth}/`;
                     if (day) {
-                        prefix += `${day.padStart(2, '0')}/`;
+                        const paddedDay = day.padStart(2, '0');
+                        if (!this._validPart(paddedDay, 1, 31)) return this._badRequest('日期格式不正确');
+                        prefix += `${paddedDay}/`;
                     }
                 }
             }
@@ -1500,6 +1647,7 @@ export class ImageService {
             const options = {
                 limit: Math.min(limit, 100), // 最大限制 100
                 prefix: prefix, // 按目录前缀进行筛选
+                order: order === 'asc' ? 'asc' : 'desc', // 默认最新在前
             };
 
             // 仅在 cursor 存在且不为 null/undefined 时添加该属性

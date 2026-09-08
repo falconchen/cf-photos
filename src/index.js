@@ -101,8 +101,21 @@ export default {
             const year = url.searchParams.get('year');
             const month = url.searchParams.get('month');
             const day = url.searchParams.get('day');
+            const order = url.searchParams.get('order');
 
-            return await imageService.listImages(request, limit, cursor, year, month, day);
+            return await imageService.listImages(request, limit, cursor, year, month, day, order);
+        }
+
+        // 管理接口：列出可筛选的年 / 月 / 日目录
+        if (path === '/admin/dirs' && request.method === 'GET') {
+            if (!AuthMiddleware.verify(request, env)) {
+                return AuthMiddleware.unauthorizedResponse();
+            }
+
+            return await imageService.listDirs(
+                url.searchParams.get('year'),
+                url.searchParams.get('month')
+            );
         }
 
         // 管理接口：删除图片

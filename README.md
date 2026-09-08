@@ -79,11 +79,17 @@ curl -X POST --data-binary "@photo.jpg" \
     - `year`: (可选) 按年份筛选,如 `2026`。
     - `month`: (可选) 按月份筛选,如 `02` (需配合 `year` 使用)。
     - `day`: (可选) 按日期筛选,如 `25` (需配合 `year` 和 `month` 使用)。
+    - `order`: (可选) 排序方向,`desc` 最新在前 (默认) / `asc` 最早在前。由于文件名是时间序 ID,排序在目录与文件名两级同时生效。切换方向后必须从空游标重新开始,沿用旧游标会返回 `无效的分页游标`。
 - **示例 (curl)**:
 ```bash
 # 获取 2026 年 2 月 25 日的所有图片
 curl -H "Authorization: Bearer your_secret_token" \
   "https://your-worker.workers.dev/admin/list?year=2026&month=02&day=25"
+```
+```bash
+# 按上传时间正序取最早的 20 张
+curl -H "Authorization: Bearer your_secret_token" \
+  "https://your-worker.workers.dev/admin/list?limit=20&order=asc"
 ```
 - **响应 (JSON)**:
 ```json
@@ -101,6 +107,31 @@ curl -H "Authorization: Bearer your_secret_token" \
     "cursor": "...",
     "count": 1
   }
+}
+```
+
+> 注意：WebDAV 没有快照式分页，某一页可能返回空 `images` 却仍带非空 `cursor`（本轮扫描的目录里恰好没有文件）。调用方需要继续沿游标翻页，不能据此判定「没有图片」。
+
+### 获取筛选目录
+列出 WebDAV 中真实存在的年 / 月 / 日目录，供后台的三级筛选下拉框使用。
+- **URL**: `GET /admin/dirs`
+- **鉴权**: 必须带上 `Authorization: Bearer your_secret_token`
+- **参数**:
+    - 不传参数: 返回所有年份。
+    - `year`: 返回该年份下存在的月份。
+    - `year` + `month`: 返回该月份下存在的日期。
+- **示例 (curl)**:
+```bash
+# 列出 2026 年 9 月有图片的日期
+curl -H "Authorization: Bearer your_secret_token" \
+  "https://your-worker.workers.dev/admin/dirs?year=2026&month=09"
+```
+- **响应 (JSON)**: 目录名按降序排列。
+```json
+{
+  "result": "success",
+  "code": 200,
+  "data": { "dirs": ["21", "08"] }
 }
 ```
 

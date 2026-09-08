@@ -26,7 +26,7 @@ Local secrets live in `.dev.vars` (git-ignored; `cp .dev.vars.example .dev.vars`
 
 Single Cloudflare Worker. `src/index.js` is a hand-rolled router (path + method `if` chain) that builds `new ImageService(new WebDAVStorage(env))` per request and dispatches.
 
-**Storage abstraction is the key design point.** `ImageService` is storage-agnostic and depends only on an R2-`Bucket`-shaped interface: `get(key)` → `{ body, httpEtag, writeHttpMetadata(headers) }` or `null`; `put(key, body, { httpMetadata })`; `delete(key)`; `list({ prefix, delimiter, limit, cursor })` → `{ objects, delimitedPrefixes, truncated, cursor }`. This repo has three branches sharing `ImageService` unchanged:
+**Storage abstraction is the key design point.** `ImageService` is storage-agnostic and depends only on an R2-`Bucket`-shaped interface: `get(key)` → `{ body, httpEtag, writeHttpMetadata(headers) }` or `null`; `put(key, body, { httpMetadata })`; `delete(key)`; `list({ prefix, delimiter, limit, cursor, order })` → `{ objects, delimitedPrefixes, truncated, cursor }`. `order` (`'asc'` default / `'desc'`) is a WebDAV-branch extension: native R2 silently ignores it, so `main` / `r2` always list ascending. This repo has three branches sharing `ImageService` unchanged:
 - `main` / `r2` — inject `env.MY_BUCKET` (native R2) directly.
 - `webdav` (current) — inject `WebDAVStorage`, which reimplements that same shape over WebDAV HTTP verbs. No R2 binding; `wrangler.toml` has no bucket.
 
@@ -35,9 +35,10 @@ Single Cloudflare Worker. `src/index.js` is a hand-rolled router (path + method 
 - All keys are confined to `i/`; `validate()` rejects traversal, control chars, backslashes, empty segments. `delete()` refuses to delete a collection.
 - `redirect: 'manual'` everywhere — a redirect is an error, never followed, so credentials never leak to another host. XML with `<!DOCTYPE>` / `<!ENTITY>` is rejected (XXE guard).
 - `put()` creates each missing parent dir via `MKCOL` (tolerating 405), then re-verifies via `PROPFIND` that a 405 was a real directory and not a same-named file.
-- WebDAV has no snapshot pagination. `list()` does a Depth:1 walk, encoding a base64 JSON cursor `{ prefix, dirs, after }` (queue of pending dirs + last-seen file). Each call scans ≤35 directories and **may legitimately return an empty `objects` array with a non-null `cursor`** — callers must keep following the cursor.
+- WebDAV has no snapshot pagination. `list()` does a Depth:1 walk, encoding a base64 JSON cursor `{ prefix, dirs, after, order }` (queue of pending dirs + last-seen file + direction). Each call scans ≤35 directories and **may legitimately return an empty `objects` array with a non-null `cursor`** — callers must keep following the cursor.
+- `order: 'desc'` reverses both the directory stack and the in-directory filename sort, so the walk runs newest→oldest end to end (keys are time-ordered, see the path scheme below). The cursor records its direction and a mismatched one is rejected as `无效的分页游标` — changing sort order means restarting from a null cursor. `after: ''` means "no bound yet" in both directions.
 
-`src/services/ImageService.js` (~1500 lines) — all business logic: the three upload paths (multipart, JSON/base64, raw binary), date-based path generation (`/i/YYYY/MM/DD/<8-char-base60-time-id><ext>` — 时分秒各 1 位 + 毫秒 2 位 + crypto 随机 3 位；目录日期与文件名时间同用 `TIMEZONE_OFFSET`，故 `ImageService` 的构造函数接收 `env` 作为第二个参数), MIME↔extension mapping, image fetch (passes through remote `Content-Type` / `ETag` / `Last-Modified`, caches 1 day), delete, `listImages` (auto-follows empty-but-cursor pages up to ~20 rounds so deep dirs aren't shown as "no images"), and `renderDashboard()` which returns the entire admin UI as an inline HTML string.
+`src/services/ImageService.js` (~1500 lines) — all business logic: the three upload paths (multipart, JSON/base64, raw binary), date-based path generation (`/i/YYYY/MM/DD/<8-char-base60-time-id><ext>` — 时分秒各 1 位 + 毫秒 2 位 + crypto 随机 3 位；目录日期与文件名时间同用 `TIMEZONE_OFFSET`，故 `ImageService` 的构造函数接收 `env` 作为第二个参数), MIME↔extension mapping, image fetch (passes through remote `Content-Type` / `ETag` / `Last-Modified`, caches 1 day), delete, `listImages` (validates `year`/`month`/`day` before building the prefix, defaults to `order: 'desc'`), `listDirs` (the year/month/day filter options, via `_listSubdirs` over `list()`'s `delimiter` branch), and `renderDashboard()` which returns the entire admin UI as an inline HTML string — static, no WebDAV call, with the dashboard's own JS filling the filter selects from `/admin/dirs`. The “auto-follow empty-but-cursor pages, up to 20 rounds” loop lives in that inline JS (`loadImages()`), **not** in `listImages`, which makes exactly one `storage.list()` call.
 
 `src/middleware/AuthMiddleware.js` — static `Bearer` token check. Upload endpoints also accept the token as a `token` form/JSON field (for uPic and similar clients).
 
@@ -48,8 +49,8 @@ Single Cloudflare Worker. `src/index.js` is a hand-rolled router (path + method 
 
 ## Endpoints
 
-`GET /` dashboard · `POST /upload` (multipart `image`/`file`, or JSON base64, or raw binary) · `GET /i/{y}/{m}/{d}/{name}` fetch · `PUT /i/...` upload to explicit path · `GET /admin/list?limit&cursor&year&month&day` · `DELETE /admin/delete/{key}`.
+`GET /` dashboard · `POST /upload` (multipart `image`/`file`, or JSON base64, or raw binary) · `GET /i/{y}/{m}/{d}/{name}` fetch · `PUT /i/...` upload to explicit path · `GET /admin/list?limit&cursor&year&month&day&order` (`order=desc` newest-first, the default; `asc` oldest-first) · `GET /admin/dirs?year&month` (filter options: no params → years, `year` → that year's months, `year`+`month` → that month's days; descending) · `DELETE /admin/delete/{key}`.
 
 ## Verifying WebDAV changes
 
-Beyond `npm test`: with real `.dev.vars`, upload a throwaway image, confirm the downloaded bytes match, check it appears in `/admin/list` and in a date-filtered query, then delete it and confirm a subsequent fetch returns 404.
+Beyond `npm test`: with real `.dev.vars`, upload a throwaway image, confirm the downloaded bytes match, check it appears first in `/admin/list` (default newest-first), last under `order=asc`, and in a `year`+`month`+`day` filtered query whose values `/admin/dirs` reports, then delete it and confirm a subsequent fetch returns 404.
