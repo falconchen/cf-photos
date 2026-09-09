@@ -9,11 +9,13 @@
 
 ## 使用方法
 
-### 展示图片
+### 展示图片 / 视频 / 音频
 直接访问图片 URL：
 `GET https://your-worker.workers.dev/i/2026/02/25/abc1234.jpeg`
 
-### 上传图片
+### 上传文件
+支持图片、视频与音频(扩展名由 `Content-Type` 或原始文件名推断)。图片/视频/音频的读取接口均支持 `Range` 请求,`<video>` / `<audio>` 可以正常拖拽定位。
+
 本项目支持三种上传方式,适配 uPic、curl 等多种客户端。所有上传接口均位于 `/upload`。
 
 > **大小限制**：Multipart 与 JSON(Base64) 会把整个文件读进 Worker 内存，上限 **20 MB**，超出返回 413；这两种方式还要求带 `Content-Length`，分块传输返回 411。二进制流式上传（裸二进制 `POST` / `PUT /i/...`）不经过内存、**不受此限制**，只受 Cloudflare 套餐的请求体上限约束（Free/Pro 100 MB、Business 200 MB、Enterprise 更高，超限由边缘直接返回 413）。
@@ -49,6 +51,7 @@ curl -X POST -H "Content-Type: application/json" \
 直接将图片二进制数据放在请求体中发送。
 - **URL**: `POST /upload` 或 `PUT /i/{year}/{month}/{day}/{filename}` (PUT 方式支持自定义路径)
 - **大小上限**: 无 20 MB 限制,body 流式透传给 WebDAV,大文件请用这种方式
+- **可选请求头**: `X-Upload-Filename` 传原始文件名(需 URL 编码),服务端据此保留后缀;不传则按 `Content-Type` 推断
 - **示例 (curl)**:
 ```bash
 curl -X POST --data-binary "@photo.jpg" \
@@ -199,6 +202,27 @@ npm run deploy
 ```
 
 `.dev.vars` 不会作为生产 secrets 部署。此分支移除了 R2 绑定，不会迁移原 R2 图片；旧图片需另行复制到 WebDAV 的同名路径。
+
+### 每日增量备份
+
+`scripts/webdav-backup.sh` 把 WebDAV 上的 `i/` 目录镜像到本地，只依赖 `bash` 和 `curl`，从同一份 `.dev.vars` 读取凭据（凭据写进 600 权限的临时 curl 配置文件，不出现在命令行里）。
+
+```bash
+scripts/webdav-backup.sh -c .dev.vars -d ~/cf-photos-backup --dry-run  # 先看会下载什么
+scripts/webdav-backup.sh -c .dev.vars -d ~/cf-photos-backup            # 实际备份
+```
+
+增量分两层：目录级只遍历「上次成功日期 − `GRACE_DAYS`（默认 2 天）」之后的 `年/月/日` 目录；文件级跳过本地已存在且字节数与远端一致的文件，因此中断后重跑即为续传。任何文件失败都不会推进 `.backup-state/last-success`，下次仍会重扫这段区间。
+
+常用选项：`--full` 全量遍历，`--since 2026-01-01` 指定起点，`--prune` 把远端已删除的文件移入 `.trash/`（隐含 `--full`，按 `TRASH_KEEP_DAYS` 天过期后才真正删除），`--dry-run` 只报告，`-q` 静默。状态与日志在备份目录下的 `.backup-state/`（`backup.log`、`manifest.txt`、`last-success`），并用锁目录防止并发运行。
+
+每天跑一次（crontab）：
+
+```bash
+20 3 * * * /path/to/cf-photos/scripts/webdav-backup.sh -c /path/to/.dev.vars >/dev/null 2>&1
+```
+
+macOS 用 launchd 的 plist 示例见 `scripts/webdav-backup.sh --help`。
 
 ### 实现与验证
 
