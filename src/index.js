@@ -5,6 +5,7 @@
 
 import { WebDAVStorage } from './services/WebDAVStorage.js';
 import { ImageService } from './services/ImageService.js';
+import { McpService } from './services/McpService.js';
 import { AuthMiddleware } from './middleware/AuthMiddleware.js';
 
 /**
@@ -186,6 +187,47 @@ export default {
             }
             const key = path.replace('/admin/delete/', '');
             return await imageService.deleteImage(key);
+        }
+
+        // MCP 服务端：无状态 Streamable HTTP，只接受 POST，永远返回单个 JSON-RPC 响应
+        if (path === '/mcp') {
+            if (request.method === 'OPTIONS') return McpService.preflightResponse();
+            if (request.method !== 'POST') return McpService.methodNotAllowedResponse();
+
+            // 这里独自 fail-closed，与其余端点相反：AuthMiddleware 在未配置 AUTH_TOKEN 时
+            // 放行，而一个无鉴权的 MCP 端点等于把「由模型远程驱动的服务端抓取器 + 公开写入
+            // 原语」暴露给任何试探 POST /mcp 的人，比开放图床严重得多。
+            if (!env.AUTH_TOKEN) {
+                return new Response('MCP 端点要求配置 AUTH_TOKEN', {
+                    status: 503,
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                });
+            }
+
+            // 鉴权前置到读 body 之前，与 /upload 的做法一致；MCP 客户端都用请求头，
+            // 不提供请求体里的 token 回落。
+            if (!AuthMiddleware.verify(request, env)) {
+                return AuthMiddleware.unauthorizedResponse();
+            }
+
+            // 不复用 checkBufferedSize：那里缺 Content-Length 就 411，而 MCP 客户端
+            // 完全可能用分块传输；这里只在客户端自己声明了超限体积时才拒绝。
+            const declared = Number(request.headers.get('Content-Length'));
+            if (Number.isFinite(declared) && declared > MAX_BUFFERED_UPLOAD) {
+                const limit = Math.floor(MAX_BUFFERED_UPLOAD / 1024 / 1024);
+                return new Response(JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: null,
+                    error: { code: -32600, message: `请求体过大：MCP 请求上限 ${limit} MB，更大的图片请改用 source_url 参数` }
+                }), {
+                    status: 413,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+
+            return await new McpService(imageService, {
+                maxBytes: MAX_BUFFERED_UPLOAD
+            }).handle(request);
         }
 
         // 默认返回 404

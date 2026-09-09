@@ -176,6 +176,54 @@ curl -X POST --data-binary "@wang.jpeg" \
   http://localhost:8787/upload
 ```
 
+## MCP 服务端
+
+`POST /mcp` 以 [Model Context Protocol](https://modelcontextprotocol.io/) 暴露一个 `upload_image` 工具，让 Claude Code、Claude Desktop 等 MCP 客户端可以直接把图片存进本图床并拿到公开 URL，不必再由人转述 curl。
+
+- **传输**：Streamable HTTP，无状态。只接受 `POST`，永远返回单个 JSON-RPC 响应，不使用 SSE，也不下发会话 id。`GET` / `DELETE` 返回 405，`OPTIONS` 返回 CORS 预检。
+- **协议版本**：对外声明 `2025-11-25`，可回显 `2025-06-18` / `2025-03-26`。
+- **鉴权**：`Authorization: Bearer <AUTH_TOKEN>`，与 `/admin/*` 同一个 token。**未配置 `AUTH_TOKEN` 时该端点返回 503**，而不是像其它端点那样放行——一个无鉴权的 MCP 端点等于把「由模型远程驱动的服务端抓取器 + 公开写入原语」暴露给所有人。
+
+### 工具 `upload_image`
+
+两个参数二选一，必须且只能给一个：
+
+| 参数 | 说明 |
+| --- | --- |
+| `source_url` | 图片的公网 HTTPS 地址，由服务端自行下载 |
+| `image_base64` | 图片的 base64 或 `data:image/png;base64,...` 形式的 data URL |
+
+支持 JPEG / PNG / GIF / WebP / AVIF / HEIC / BMP / TIFF / ICO，单张不超过 20 MB。**只接受图片**——虽然图床本身支持视频与音频，这个工具刻意不开放它们。**不接受 SVG**：存下来后由本站域名提供服务会构成对后台页面的存储型 XSS。
+
+`source_url` 的限制：只接受公网 HTTPS **域名**地址；拒绝 IP 直连（含十进制 / 十六进制变形与 IPv6 字面量）、`localhost`、`.local` / `.internal` 等保留域名、带用户名密码的 URL，以及指向本站自己的地址；不跟随重定向（3xx 直接报错，请给出跳转后的最终地址）；出站请求不携带任何客户端请求头。
+
+工具执行失败（地址被拦、类型不支持、超限等）返回的是正常的 JSON-RPC 响应加 `isError: true`，错误文案是中文，供模型读懂后自行改正重试。
+
+### 接入 Claude Code
+
+```bash
+claude mcp add --transport http cf-photos https://your-worker.workers.dev/mcp \
+  --header "Authorization: Bearer your_secret_token"
+```
+
+本地开发（先跑 `npm run dev -- --ip 127.0.0.1`）：
+
+```bash
+claude mcp add --transport http cf-photos-dev http://127.0.0.1:8787/mcp \
+  --header "Authorization: Bearer your_secret_token"
+```
+
+`--header` 的值含空格，必须加引号。加 `--scope user` 可在所有项目里使用。用 `claude mcp list` 或会话内的 `/mcp` 查看连接状态与工具列表。
+
+### 直接用 cURL 调试
+
+```bash
+curl -X POST http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer your_secret_token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
 ## WebDAV 配置与开发
 
 `webdav` 分支使用 WebDAV 存储，不需要 R2 绑定。接口路径和管理后台保持兼容。
