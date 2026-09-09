@@ -1338,11 +1338,11 @@ export class ImageService {
                     if (e.lengthComputable) onProgress(e.loaded / e.total);
                 };
                 xhr.onload = () => {
-                    try {
-                        resolve({ status: xhr.status, data: JSON.parse(xhr.responseText) });
-                    } catch {
-                        reject(new Error('服务端返回了无法解析的响应'));
-                    }
+                    // 不能先解析再判状态：401 等错误返回的是纯文本，
+                    // 那样会在 status 检查之前就抛出，401 分支永远走不到。
+                    let data = null;
+                    try { data = JSON.parse(xhr.responseText); } catch { /* 非 JSON 响应 */ }
+                    resolve({ status: xhr.status, data, text: xhr.responseText });
                 };
                 xhr.onerror = () => reject(new Error('网络请求出错'));
                 xhr.send(file);
@@ -1405,7 +1405,7 @@ export class ImageService {
                 }
 
                 const data = res.data;
-                if (data.result === 'success') {
+                if (data && data.result === 'success') {
                     statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
                     statusText.className = 'upload-item-status status-success';
 
@@ -1431,7 +1431,8 @@ export class ImageService {
                 } else {
                     statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
                     statusText.className = 'upload-item-status status-error';
-                    alert('上传失败: ' + data.message);
+                    // 纯文本错误（如平台层的 413）没有 message 字段，退回原文与状态码
+                    alert('上传失败: ' + (data?.message || res.text || ('HTTP ' + res.status)));
                 }
             } catch (e) {
                 statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
