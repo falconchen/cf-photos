@@ -6,6 +6,7 @@
 import { WebDAVStorage } from './services/WebDAVStorage.js';
 import { ImageService } from './services/ImageService.js';
 import { McpService } from './services/McpService.js';
+import { OAuthService } from './services/OAuthService.js';
 import { AuthMiddleware } from './middleware/AuthMiddleware.js';
 
 /**
@@ -73,6 +74,13 @@ export default {
         const url = new URL(request.url);
         const path = url.pathname;
         const imageService = new ImageService(new WebDAVStorage(env), env);
+
+        // OAuth 与它的发现文档：claude.ai 网页版 / 手机端的自定义连接器不支持静态
+        // Authorization 头，只认 OAuth，这套端点专门为它们存在。放在最前面是因为
+        // /.well-known/* 必须在任何鉴权之前可匿名读取。
+        if (OAuthService.owns(path)) {
+            return await new OAuthService(env).handle(request, url);
+        }
 
         // 首页：展示管理后台界面
         if (path === '/' && request.method === 'GET') {
@@ -206,8 +214,11 @@ export default {
 
             // 鉴权前置到读 body 之前，与 /upload 的做法一致；MCP 客户端都用请求头，
             // 不提供请求体里的 token 回落。
-            if (!AuthMiddleware.verify(request, env)) {
-                return AuthMiddleware.unauthorizedResponse();
+            // 两种凭据都收：静态 AUTH_TOKEN（Claude Code / 桌面端 / 脚本）与 OAuth
+            // 访问令牌（claude.ai 网页版与手机端）。401 必须带 resource_metadata，
+            // 那是 Claude 找到授权服务器的唯一可靠入口。
+            if (!AuthMiddleware.verify(request, env) && !await OAuthService.verifyAccessToken(request, env, url)) {
+                return OAuthService.unauthorizedResponse(url);
             }
 
             // 不复用 checkBufferedSize：那里缺 Content-Length 就 411，而 MCP 客户端
