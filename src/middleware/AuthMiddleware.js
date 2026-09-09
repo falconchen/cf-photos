@@ -51,7 +51,12 @@ export class AuthMiddleware {
     static unauthorizedResponse() {
         return new Response('Unauthorized: 鉴权失败，请提供正确的 Token', {
             status: 401,
-            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                // RFC 6750 要求 401 声明所用的鉴权方案；MCP 客户端也依赖它判断该带什么凭据。
+                // 浏览器只对 Basic / Digest 弹原生凭据框，Bearer 不弹，后台页面无 UX 影响。
+                'WWW-Authenticate': 'Bearer realm="cf-photos"'
+            }
         });
     }
 }
