@@ -130,7 +130,7 @@ export class ImageService {
 
             // 如果对象不存在，返回 404
             if (object === null) {
-                return new Response('图片不存在', {
+                return new Response('文件不存在', {
                     status: 404,
                     headers: { 'Content-Type': 'text/plain; charset=utf-8' }
                 });
@@ -420,7 +420,7 @@ export class ImageService {
             return new Response(JSON.stringify({
                 result: 'success',
                 code: 200,
-                message: '图片已成功删除'
+                message: '文件已成功删除'
             }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' }
@@ -1112,7 +1112,7 @@ export class ImageService {
             <div id="header-actions">
                 <button class="btn-primary" onclick="showUploadModal()">
                     <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    上传图片
+                    上传文件
                 </button>
                 <button class="logout-btn" onclick="logout()">
                     <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
@@ -1160,7 +1160,7 @@ export class ImageService {
                         </select>
                     </div>
                 </div>
-                <div id="loading">正在加载图片...</div>
+                <div id="loading">正在加载...</div>
                 <div id="image-grid" class="grid"></div>
                 <div id="load-more" style="text-align: center; margin-top: 3rem; display: none;">
                     <button onclick="loadImages(true)" style="width: auto; padding: 0.75rem 2rem;">加载更多</button>
@@ -1511,7 +1511,7 @@ export class ImageService {
         function resetAndLoad() {
             currentCursor = null;
             const loadingEl = document.getElementById('loading');
-            loadingEl.textContent = '正在加载图片...';
+            loadingEl.textContent = '正在加载...';
             loadingEl.style.display = 'block';
             document.getElementById('image-grid').innerHTML = '';
             document.getElementById('load-more').style.display = 'none';
@@ -1578,7 +1578,7 @@ export class ImageService {
 
                 document.getElementById('load-more').style.display = currentCursor ? 'block' : 'none';
                 if (received === 0 && !append) {
-                    loadingEl.textContent = currentCursor ? '本次扫描未找到图片，可点击“加载更多”继续' : '暂无图片';
+                    loadingEl.textContent = currentCursor ? '本次扫描未找到文件，可点击“加载更多”继续' : '暂无文件';
                     loadingEl.style.display = 'block';
                 } else {
                     loadingEl.style.display = 'none';
@@ -1670,7 +1670,7 @@ export class ImageService {
         }
 
         async function deleteImage(key, btn) {
-            if (!confirm('确定要永久删除这张图片吗？此操作不可撤销。')) return;
+            if (!confirm('确定要永久删除这个文件吗？此操作不可撤销。')) return;
             
             const originalText = btn.textContent;
             btn.textContent = '删除中...';

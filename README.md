@@ -78,8 +78,8 @@ curl -X POST --data-binary "@photo.jpg" \
 
 ## 管理功能
 
-### 获取图片列表
-用于列出 WebDAV 存储中 `i/` 目录下的所有图片。
+### 获取文件列表
+用于列出 WebDAV 存储中 `i/` 目录下的所有文件。
 - **URL**: `GET /admin/list`
 - **鉴权**: 必须带上 `Authorization: Bearer your_secret_token`
 - **参数**:
