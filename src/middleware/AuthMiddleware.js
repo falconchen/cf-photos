@@ -23,6 +23,17 @@ export class AuthMiddleware {
     }
 
     /**
+     * 请求是否带了 Authorization 头
+     * 用于区分「没带头、需要回落到请求体里的 token」与「带了头但不对、可以立即拒绝」，
+     * 后者不必为一个注定失败的请求把整个请求体读进内存。
+     * @param {Request} request
+     * @returns {boolean}
+     */
+    static hasHeader(request) {
+        return request.headers.has('Authorization');
+    }
+
+    /**
      * 直接校验 Token 字符串
      * @param {string} token 
      * @param {Object} env 

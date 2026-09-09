@@ -492,12 +492,15 @@ export class ImageService {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
             margin-bottom: 3rem;
         }
 
         h1 {
             font-size: 1.875rem;
             font-weight: 600;
+            white-space: nowrap;
             background: linear-gradient(to right, #60a5fa, #a855f7);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -677,8 +680,11 @@ export class ImageService {
             font-size: 0.875rem;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 0.5rem;
             border-radius: 0.5rem;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .btn-sm {
@@ -720,7 +726,10 @@ export class ImageService {
             border-radius: 0.5rem;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 0.5rem;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         /* Modal Styles */
@@ -742,6 +751,9 @@ export class ImageService {
             background: #1e293b;
             width: 100%;
             max-width: 600px;
+            margin: 1rem;
+            max-height: calc(100vh - 2rem);
+            overflow-y: auto;
             border-radius: 1.5rem;
             border: 1px solid rgba(255, 255, 255, 0.1);
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
@@ -961,6 +973,113 @@ export class ImageService {
             opacity: 0.45;
             cursor: not-allowed;
         }
+
+        /* 年/月/日三个下拉始终同处一行 */
+        .date-selects {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        /* 窄屏（手机）适配：头部与筛选栏改为纵向堆叠，控件占满一行 */
+        @media (max-width: 640px) {
+            .container {
+                padding: 1.25rem 1rem;
+            }
+
+            header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 1rem;
+                margin-bottom: 1.75rem;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+                gap: 0.5rem;
+            }
+
+            h1 .logo-icon {
+                width: 28px !important;
+                height: 28px !important;
+            }
+
+            /* showDashboard() 会把 display 改成 flex，这里只调布局 */
+            #header-actions {
+                width: 100%;
+            }
+
+            #header-actions > button {
+                flex: 1;
+                padding: 0.55rem 0.75rem;
+            }
+
+            #login-screen {
+                height: auto;
+                min-height: 60vh;
+            }
+
+            .login-card {
+                padding: 1.75rem 1.25rem;
+            }
+
+            .filter-bar {
+                padding: 1rem;
+                gap: 0.75rem;
+                margin-bottom: 1.5rem;
+            }
+
+            .filter-bar .spacer {
+                display: none;
+            }
+
+            .select-group {
+                width: 100%;
+                gap: 0.5rem;
+            }
+
+            .select-group select {
+                flex: 1;
+                min-width: 0;
+                padding: 0.5rem 0.5rem;
+                font-size: 0.8125rem;
+            }
+
+            /* 标签占一整行，下面三个下拉等分一行 */
+            .date-group {
+                flex-wrap: wrap;
+                row-gap: 0.6rem;
+            }
+
+            .date-selects {
+                width: 100%;
+                gap: 0.5rem;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+
+            .modal-content {
+                padding: 1.25rem;
+            }
+
+            .modal-header {
+                padding: 1.25rem;
+            }
+
+            .upload-dropzone {
+                padding: 2rem 1rem;
+            }
+
+            .toast {
+                left: 1rem;
+                right: 1rem;
+                bottom: 1rem;
+                text-align: center;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1005,20 +1124,20 @@ export class ImageService {
             <!-- Dashboard -->
             <div id="dashboard">
                 <div class="filter-bar">
-                    <div class="select-group">
-                        <svg style="width: 16px; height: 16px; color: var(--text-dim);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <div class="select-group date-group">
+                        <svg style="width: 16px; height: 16px; color: var(--text-dim); flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         <label for="year-select">日期筛选:</label>
-                        <select id="year-select" onchange="onYearChange()">
-                            <option value="">全部年份</option>
-                        </select>
-                    </div>
-                    <div class="select-group">
-                        <select id="month-select" onchange="onMonthChange()" disabled>
-                            <option value="">全部月份</option>
-                        </select>
-                        <select id="day-select" onchange="resetAndLoad()" disabled>
-                            <option value="">全部日期</option>
-                        </select>
+                        <div class="date-selects">
+                            <select id="year-select" onchange="onYearChange()">
+                                <option value="">全部年份</option>
+                            </select>
+                            <select id="month-select" onchange="onMonthChange()" disabled>
+                                <option value="">全部月份</option>
+                            </select>
+                            <select id="day-select" onchange="resetAndLoad()" disabled>
+                                <option value="">全部日期</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="spacer"></div>
                     <div class="select-group">

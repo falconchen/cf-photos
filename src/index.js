@@ -7,6 +7,59 @@ import { WebDAVStorage } from './services/WebDAVStorage.js';
 import { ImageService } from './services/ImageService.js';
 import { AuthMiddleware } from './middleware/AuthMiddleware.js';
 
+/**
+ * 缓冲式上传（multipart / JSON base64）的请求体上限。
+ *
+ * 这两条路径会把整个文件读进内存：multipart 峰值约 2~3 倍文件大小，base64 约
+ * 4~5 倍（base64 字符串 + atob 的 binary string + Uint8Array 同时存活）。而
+ * 128 MB 的 isolate 内存是并发请求共享的，按单请求峰值 ≤64 MB 反推，上限落在
+ * 20 MB 左右。它覆盖除 ProRAW 外的全部 iPhone 原图（12MP HEIC 2~4 MB、48MP
+ * HEIF Max 约 6~8 MB、全景图 10~25 MB）。
+ *
+ * 再往上调挡住的不是攻击者而是 Worker 自己 —— 413 会变成 OOM。更大的文件必须
+ * 走流式路径（PUT /i/... 或裸二进制 POST），那条路 body 直接透传给 WebDAV，
+ * 不占内存，只受 Cloudflare 套餐的请求体上限约束。
+ */
+const MAX_BUFFERED_UPLOAD = 20 * 1024 * 1024;
+
+/**
+ * 构造上传相关的 JSON 错误响应
+ * @param {number} code HTTP 状态码
+ * @param {string} message 错误说明
+ * @returns {Response}
+ */
+function uploadError(code, message) {
+    return new Response(JSON.stringify({ result: 'error', code, message }), {
+        status: code,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+    });
+}
+
+/**
+ * 在解析请求体之前按 Content-Length 拦掉过大的缓冲式上传。
+ * 缺少 Content-Length（分块传输）时无法预判大小，直接要求补上，否则本限制可被绕过。
+ * @param {Request} request
+ * @returns {Response|null} 需要拒绝时返回响应，放行时返回 null
+ */
+function checkBufferedSize(request) {
+    const declared = request.headers.get('Content-Length');
+    if (declared === null) {
+        return uploadError(411, '表单与 Base64 上传需要 Content-Length 请求头；如需分块传输请改用 PUT /i/... 流式上传');
+    }
+
+    const size = Number(declared);
+    if (!Number.isFinite(size) || size < 0) {
+        return uploadError(400, 'Content-Length 不合法');
+    }
+
+    if (size > MAX_BUFFERED_UPLOAD) {
+        const limit = Math.floor(MAX_BUFFERED_UPLOAD / 1024 / 1024);
+        return uploadError(413, `文件过大：表单与 Base64 上传上限 ${limit} MB，更大的文件请改用 PUT /i/... 或裸二进制 POST 流式上传`);
+    }
+
+    return null;
+}
+
 export default {
     /**
      * 接管 HTTP 请求并返回响应
@@ -30,16 +83,23 @@ export default {
             const contentType = request.headers.get('Content-Type') || '';
             console.log(`[Debug] 上传请求 Content-Type: "${contentType}"`);
 
+            // multipart 与 JSON 两条路径都会把整个请求体读进内存，因此鉴权尽量前置：
+            // 带了 Authorization 就以它为准，无效则立刻拒绝，不为一个注定失败的
+            // 请求缓冲文件。只有完全没带 Authorization 时才回落到请求体里的 token
+            // 字段（uPic 等客户端只能这么传），那条路径必须先解析才能拿到 token。
+            const hasHeaderAuth = AuthMiddleware.verify(request, env);
+            if (!hasHeaderAuth && AuthMiddleware.hasHeader(request)) {
+                return AuthMiddleware.unauthorizedResponse();
+            }
+
             // 1. 兼容 uPic 的 multipart/form-data 上传
             if (contentType.includes('multipart/form-data')) {
+                const tooLarge = checkBufferedSize(request);
+                if (tooLarge) return tooLarge;
+
                 const formData = await request.formData();
 
-                // 鉴权校验：优先 Header，其次表单字段 "token"
-                const hasHeaderAuth = AuthMiddleware.verify(request, env);
-                const formToken = formData.get('token');
-                const hasFormAuth = formToken ? AuthMiddleware.verifyToken(formToken, env) : false;
-
-                if (!hasHeaderAuth && !hasFormAuth) {
+                if (!hasHeaderAuth && !AuthMiddleware.verifyToken(formData.get('token'), env)) {
                     return AuthMiddleware.unauthorizedResponse();
                 }
 
@@ -48,30 +108,27 @@ export default {
 
             // 2. 兼容 uPic 的 application/json (Base64) 上传
             if (contentType.includes('application/json')) {
-                const body = await request.json();
-                const imageBase64 = body.image;
-                const jsonToken = body.token;
+                const tooLarge = checkBufferedSize(request);
+                if (tooLarge) return tooLarge;
 
-                if (!imageBase64) {
+                const body = await request.json();
+
+                if (!hasHeaderAuth && !AuthMiddleware.verifyToken(body.token, env)) {
+                    return AuthMiddleware.unauthorizedResponse();
+                }
+
+                if (!body.image) {
                     return new Response(JSON.stringify({ result: 'error', code: 400, message: '缺少 image 字段' }), {
                         status: 400,
                         headers: { 'Content-Type': 'application/json' }
                     });
                 }
 
-                // 鉴权校验
-                const hasHeaderAuth = AuthMiddleware.verify(request, env);
-                const hasJsonAuth = jsonToken ? AuthMiddleware.verifyToken(jsonToken, env) : false;
-
-                if (!hasHeaderAuth && !hasJsonAuth) {
-                    return AuthMiddleware.unauthorizedResponse();
-                }
-
-                return await imageService.uploadWithBase64(request, imageBase64);
+                return await imageService.uploadWithBase64(request, body.image);
             }
 
-            // 3. 传统的二进制流上传
-            if (!AuthMiddleware.verify(request, env)) {
+            // 3. 传统的二进制流上传：body 以流的形式透传，不经过内存
+            if (!hasHeaderAuth) {
                 return AuthMiddleware.unauthorizedResponse();
             }
             return await imageService.uploadWithAutoPath(request, request.body, contentType);
