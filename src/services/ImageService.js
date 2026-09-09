@@ -974,6 +974,13 @@ export class ImageService {
             cursor: not-allowed;
         }
 
+        /* 年/月/日三个下拉始终同处一行 */
+        .date-selects {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
         /* 窄屏（手机）适配：头部与筛选栏改为纵向堆叠，控件占满一行 */
         @media (max-width: 640px) {
             .container {
@@ -1034,7 +1041,19 @@ export class ImageService {
             .select-group select {
                 flex: 1;
                 min-width: 0;
-                padding: 0.5rem 0.75rem;
+                padding: 0.5rem 0.5rem;
+                font-size: 0.8125rem;
+            }
+
+            /* 标签占一整行，下面三个下拉等分一行 */
+            .date-group {
+                flex-wrap: wrap;
+                row-gap: 0.6rem;
+            }
+
+            .date-selects {
+                width: 100%;
+                gap: 0.5rem;
             }
 
             .grid {
@@ -1105,20 +1124,20 @@ export class ImageService {
             <!-- Dashboard -->
             <div id="dashboard">
                 <div class="filter-bar">
-                    <div class="select-group">
-                        <svg style="width: 16px; height: 16px; color: var(--text-dim);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <div class="select-group date-group">
+                        <svg style="width: 16px; height: 16px; color: var(--text-dim); flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         <label for="year-select">日期筛选:</label>
-                        <select id="year-select" onchange="onYearChange()">
-                            <option value="">全部年份</option>
-                        </select>
-                    </div>
-                    <div class="select-group">
-                        <select id="month-select" onchange="onMonthChange()" disabled>
-                            <option value="">全部月份</option>
-                        </select>
-                        <select id="day-select" onchange="resetAndLoad()" disabled>
-                            <option value="">全部日期</option>
-                        </select>
+                        <div class="date-selects">
+                            <select id="year-select" onchange="onYearChange()">
+                                <option value="">全部年份</option>
+                            </select>
+                            <select id="month-select" onchange="onMonthChange()" disabled>
+                                <option value="">全部月份</option>
+                            </select>
+                            <select id="day-select" onchange="resetAndLoad()" disabled>
+                                <option value="">全部日期</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="spacer"></div>
                     <div class="select-group">
