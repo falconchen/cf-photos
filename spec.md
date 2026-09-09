@@ -38,6 +38,14 @@
 - **功能**: 展示图片列表、删除图片、年份筛选、**手动上传图片**。
 - **上传方式**: 支持点击按钮触发弹窗，通过文件选择、拖拽或复制粘贴上传。
 
+### 4. MCP 接口
+- **URL**: `POST /mcp`
+- **传输**: Streamable HTTP，无状态，只返回 JSON 响应，不使用 SSE，不下发会话 id。
+- **协议版本**: 声明 `2025-11-25`，兼容 `2025-06-18` / `2025-03-26`。
+- **验证**: 需要在 Header 中包含 `Authorization: Bearer <your_token>`；未配置 `AUTH_TOKEN` 时返回 503。
+- **工具**: `upload_image`，参数 `source_url` 与 `image_base64` 二选一，只接受图片、不接受 SVG。
+- **响应**: 单个 JSON-RPC 响应；通知返回 202；`GET` / `DELETE` 返回 405；`OPTIONS` 返回 CORS 预检。
+
 - 语言: JavaScript (ES Modules)
 - 遵循 S.O.L.I.D 原则。
 - 函数级别注释使用中文。
