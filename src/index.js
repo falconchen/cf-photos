@@ -131,7 +131,11 @@ export default {
             if (!hasHeaderAuth) {
                 return AuthMiddleware.unauthorizedResponse();
             }
-            return await imageService.uploadWithAutoPath(request, request.body, contentType);
+            return await imageService.uploadWithAutoPath(
+                request, request.body, contentType,
+                // 裸二进制没有文件名，后台与脚本可用该头保留原始后缀
+                request.headers.get('X-Upload-Filename') || ''
+            );
         }
 
         // 处理图片获取和手动路径上传
@@ -144,7 +148,7 @@ export default {
                 return await imageService.uploadImage(path, request.body, contentType);
             }
 
-            return await imageService.fetchImage(path);
+            return await imageService.fetchImage(path, request);
         }
 
         // 管理接口：列出图片
