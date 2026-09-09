@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Commands
 
@@ -18,7 +18,7 @@ There is no linter or build step. Tests are plain `.mjs` files under `test/` usi
 
 ## Configuration
 
-Local secrets live in `.dev.vars` (git-ignored; `cp .dev.vars.example .dev.vars` then `chmod 600`). Required vars: `WEBDAV_URL` (credential-free, query-free HTTPS root, e.g. `https://example.com/dav`), `WEBDAV_USERNAME`, `WEBDAV_PASSWORD`, `AUTH_TOKEN`. Optional non-secrets in `wrangler.toml` `[vars]` (overridable in `.dev.vars`): `TIMEZONE_OFFSET` (hours, default 8) and `MAX_UPLOAD_MB` (default 95) — the latter only drives the dashboard's pre-flight size check; the real ceiling is Cloudflare's per-plan request-body limit, enforced at the edge before the Worker runs, so raise it only when the account plan actually allows more. In production these are set individually via `npx wrangler secret put <NAME>`; `.dev.vars` is never deployed.
+Local secrets live in `.dev.vars` (git-ignored; `cp .dev.vars.example .dev.vars` then `chmod 600`). Required vars: `WEBDAV_URL` (credential-free, query-free HTTPS root, e.g. `https://example.com/dav`), `WEBDAV_USERNAME`, `WEBDAV_PASSWORD`, `AUTH_TOKEN`. Optional: `TIMEZONE_OFFSET` (hours, default 8) — non-secret, lives in `wrangler.toml` `[vars]`, overridable in `.dev.vars`. In production these are set individually via `npx wrangler secret put <NAME>`; `.dev.vars` is never deployed.
 
 `AUTH_TOKEN` guards the app's upload/list/delete endpoints and is independent of the WebDAV password. If `AUTH_TOKEN` is unset, `AuthMiddleware` fails open (no auth) — always set it.
 

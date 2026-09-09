@@ -6,3 +6,9 @@ compatibility_date = "2024-04-03"
 # 生成图片路径与文件名时使用的时区偏移（小时，支持 5.5 这类半时区）
 # 留空或非法时回退到 8（东八区）；Workers 运行时恒为 UTC
 TIMEZONE_OFFSET = "8"
+
+# 单次上传体积上限（MB），仅用于后台上传前的预检提示。
+# 真正的上限由 Cloudflare 账户套餐在边缘强制，超限请求根本到不了 Worker：
+# Free/Pro 100、Business 200、Enterprise 默认 500（可自助调到 5120）。
+# 默认 95 是给 Free/Pro 的 100 留余量；换套餐时改这里即可。
+MAX_UPLOAD_MB = "95"

@@ -9,12 +9,38 @@ const BASE60 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx';
 // 未配置 TIMEZONE_OFFSET 时使用的默认时区偏移（东八区）
 const DEFAULT_TIMEZONE_OFFSET = 8;
 
+// Cloudflare 按账户套餐在边缘强制单次请求体上限（Free/Pro 100 MB、Business 200 MB、
+// Enterprise 默认 500 MB 且可自助调到 5 GB），超限的请求根本到不了 Worker。
+// 默认按 Free/Pro 的 100 MB 留出余量取 95，可用 MAX_UPLOAD_MB 覆盖。
+const DEFAULT_MAX_UPLOAD_MB = 95;
+
 /**
  * 解析环境变量中的时区偏移，非法值回退到默认值
  * Workers 运行时恒为 UTC，故所有本地时间都由该偏移换算得出
  * @param {string|number|undefined} value 环境变量 TIMEZONE_OFFSET 的原始值
  * @returns {number} 合法的时区偏移（小时，允许 0.5/0.75 等半时区）
  */
+/**
+ * 解析单次上传体积上限（MB）
+ * 该上限由 Cloudflare 账户套餐决定并在边缘强制，Worker 无从干预，
+ * 因此这里只用于上传前的预检提示，让用户不必传完才吃一个没有解释的 413。
+ * @param {string|number} value 环境变量 MAX_UPLOAD_MB
+ * @returns {number} 合法的上限（MB），非法时回退到默认值
+ */
+function parseMaxUploadMB(value) {
+    if (value === undefined || value === null || value === '') {
+        return DEFAULT_MAX_UPLOAD_MB;
+    }
+
+    const limit = Number(value);
+    if (!Number.isFinite(limit) || limit <= 0 || limit > 5120) {
+        console.warn(`[Config] MAX_UPLOAD_MB 非法："${value}"，回退到 ${DEFAULT_MAX_UPLOAD_MB}`);
+        return DEFAULT_MAX_UPLOAD_MB;
+    }
+
+    return limit;
+}
+
 function parseTimezoneOffset(value) {
     if (value === undefined || value === null || value === '') {
         return DEFAULT_TIMEZONE_OFFSET;
@@ -97,11 +123,12 @@ export class ImageService {
     /**
      * 构造函数
      * @param {WebDAVStorage} storage WebDAV 存储对象
-     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET
+     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET 与 MAX_UPLOAD_MB
      */
     constructor(storage, env = {}) {
         this.storage = storage;
         this.timezoneOffset = parseTimezoneOffset(env?.TIMEZONE_OFFSET);
+        this.maxUploadMB = parseMaxUploadMB(env?.MAX_UPLOAD_MB);
     }
 
     /**
@@ -119,17 +146,18 @@ export class ImageService {
      * @param {string} path 请求的 URL 路径
      * @returns {Promise<Response>} 响应对象
      */
-    async fetchImage(path) {
+    async fetchImage(path, request = null) {
         try {
             // WebDAV 的 Key 通常不带开头的斜杠
             const key = decodeURIComponent(path.startsWith('/') ? path.slice(1) : path);
 
-            // 通过 WebDAV 获取对象
-            const object = await this.storage.get(key);
+            // Range 透传给 WebDAV 由其分片，视频/音频才能拖拽定位，Worker 不缓冲
+            const range = request?.headers.get('Range') || null;
+            const object = await this.storage.get(key, range ? { range } : {});
 
             // 如果对象不存在，返回 404
             if (object === null) {
-                return new Response('图片不存在', {
+                return new Response('文件不存在', {
                     status: 404,
                     headers: { 'Content-Type': 'text/plain; charset=utf-8' }
                 });
@@ -143,8 +171,9 @@ export class ImageService {
             // 添加缓存控制（可选，此处暂设为 1 天）
             headers.set('Cache-Control', 'public, max-age=86400');
 
-            // 返回图片内容
+            // 后端接受 Range 时返回 206，忽略 Range 时仍是 200，交由客户端处理
             return new Response(object.body, {
+                status: object.status || 200,
                 headers,
             });
         } catch (error) {
@@ -217,15 +246,9 @@ export class ImageService {
                 fileBuffer = bytes.buffer;
             }
 
-            // 确定后缀名：优先取原始文件名的后缀
-            let extension = '';
-            if (originalFilename && originalFilename.includes('.')) {
-                extension = originalFilename.substring(originalFilename.lastIndexOf('.')).toLowerCase();
-                console.log(`[Debug] 从文件名识别后缀: "${extension}"`);
-            } else if (contentType) {
-                extension = this._getExtension(contentType);
-                console.log(`[Debug] 从 MIME 类型转换后缀: "${extension}"`);
-            }
+            // 确定后缀名：优先取原始文件名的后缀，其次由 MIME 类型推断
+            const extension = this._extensionFrom(originalFilename, contentType);
+            console.log(`[Debug] 推断后缀名: "${extension}"`);
 
             console.log(`[Debug] 最终确定的后缀名: "${extension}", 存储使用的 Content-Type: "${contentType || 'application/octet-stream'}"`);
 
@@ -267,6 +290,32 @@ export class ImageService {
                 headers: { 'Content-Type': 'application/json; charset=utf-8' }
             });
         }
+    }
+
+    /**
+     * 把已解码的图片字节写入存储，返回结构化结果而不是 Response
+     * 供 uploadWithBase64 与 MCP 工具共用。注意 contentType 与 extension 必须由调用方
+     * 先解析好再传进来：uploadWithBase64 的兜底是 image/jpeg，uploadFormData 的兜底是
+     * application/octet-stream 且优先用原文件名的后缀，把兜底逻辑挪进这里会悄悄改掉其中一条。
+     * @param {string} origin 形如 https://img.example.com，用于拼接绝对 URL
+     * @param {ArrayBuffer|Uint8Array} buffer 图片字节
+     * @param {string} contentType 存储用的 MIME 类型，调用方须自行兜底
+     * @param {string} [extension=''] 文件后缀名（含点，如 .png），空串表示无后缀
+     * @returns {Promise<{path: string, url: string, contentType: string, size: number}>}
+     * @throws {Error} 存储失败时抛出，由调用方决定如何呈现
+     */
+    async uploadBuffer(origin, buffer, contentType, extension = '') {
+        const path = this._generateRandomPath(extension);
+        await this.storage.put(path.slice(1), buffer, {
+            httpMetadata: { contentType },
+        });
+
+        return {
+            path: path,
+            url: `${origin}${path}`,
+            contentType: contentType,
+            size: buffer.byteLength ?? buffer.length
+        };
     }
 
     /**
@@ -317,24 +366,19 @@ export class ImageService {
 
             console.log(`[Debug] 最终确定的后缀名: "${extension}", Content-Type: "${contentType || 'image/jpeg'}"`);
 
-            const path = this._generateRandomPath(extension);
-            const key = path.slice(1);
-
-            await this.storage.put(key, fileBuffer, {
-                httpMetadata: {
-                    contentType: contentType || 'image/jpeg',
-                },
-            });
-
-            const urlObj = new URL(request.url);
-            const domain = `${urlObj.protocol}//${urlObj.host}`;
+            const { path, url } = await this.uploadBuffer(
+                new URL(request.url).origin,
+                fileBuffer,
+                contentType || 'image/jpeg',
+                extension
+            );
 
             return new Response(JSON.stringify({
                 result: 'success',
                 code: 200,
                 srcName: 'base64_image',
                 path: path,
-                url: `${domain}${path}`,
+                url: url,
                 del: '',
                 thumb: ''
             }), {
@@ -361,9 +405,9 @@ export class ImageService {
      * @param {string} contentType 图片 MIME 类型
      * @returns {Promise<Response>} 响应对象，包含生成的路径
      */
-    async uploadWithAutoPath(request, body, contentType) {
+    async uploadWithAutoPath(request, body, contentType, filename = '') {
         try {
-            const extension = this._getExtension(contentType);
+            const extension = this._extensionFrom(filename, contentType);
             const path = this._generateRandomPath(extension);
             const key = path.slice(1);
 
@@ -424,7 +468,7 @@ export class ImageService {
             return new Response(JSON.stringify({
                 result: 'success',
                 code: 200,
-                message: '图片已成功删除'
+                message: '文件已成功删除'
             }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' }
@@ -841,6 +885,21 @@ export class ImageService {
             flex-shrink: 0;
         }
 
+        /* 音频没有画面，缩略图位置放一个图标占位 */
+        .upload-item-thumb-audio,
+        .media-audio {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+        }
+
+        /* <video> 直接铺满预览框，取代 .real-image 的背景图方案 */
+        video.real-image {
+            object-fit: cover;
+            background: #0f172a;
+        }
+
         .upload-item-info {
             flex: 1;
             min-width: 0;
@@ -851,6 +910,13 @@ export class ImageService {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        .upload-item-reason {
+            font-size: 0.75rem;
+            color: var(--danger);
+            margin-top: 0.3rem;
+            line-height: 1.4;
         }
 
         .upload-item-progress {
@@ -1101,7 +1167,7 @@ export class ImageService {
             <div id="header-actions">
                 <button class="btn-primary" onclick="showUploadModal()">
                     <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    上传图片
+                    上传文件
                 </button>
                 <button class="logout-btn" onclick="logout()">
                     <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
@@ -1149,7 +1215,7 @@ export class ImageService {
                         </select>
                     </div>
                 </div>
-                <div id="loading">正在加载图片...</div>
+                <div id="loading">正在加载...</div>
                 <div id="image-grid" class="grid"></div>
                 <div id="load-more" style="text-align: center; margin-top: 3rem; display: none;">
                     <button onclick="loadImages(true)" style="width: auto; padding: 0.75rem 2rem;">加载更多</button>
@@ -1169,7 +1235,7 @@ export class ImageService {
                 <div id="dropzone" class="upload-dropzone" onclick="document.getElementById('file-input').click()">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                     <p>拖拽文件、粘贴 或 点击上传</p>
-                    <input type="file" id="file-input" multiple hidden accept="image/*" onchange="handleFileSelect(event)">
+                    <input type="file" id="file-input" multiple hidden accept="image/*,video/*,audio/*" onchange="handleFileSelect(event)">
                 </div>
                 <div id="upload-list" class="upload-list"></div>
             </div>
@@ -1273,7 +1339,7 @@ export class ImageService {
                     const items = e.clipboardData.items;
                     const files = [];
                     for (let i = 0; i < items.length; i++) {
-                        if (items[i].type.indexOf('image') !== -1) {
+                        if (MEDIA_PREFIXES.some(prefix => items[i].type.startsWith(prefix))) {
                             const file = items[i].getAsFile();
                             if (file) files.push(file);
                         }
@@ -1295,9 +1361,89 @@ export class ImageService {
             ([...files]).forEach(uploadFile);
         }
 
+        const MEDIA_PREFIXES = ['image/', 'video/', 'audio/'];
+        // 由服务端按 MAX_UPLOAD_MB 注入；上限本身由 Cloudflare 套餐在边缘强制
+        const MAX_UPLOAD_MB = ${this.maxUploadMB};
+        const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+        // 判断媒体类别，用于选择预览方式（列表接口不一定带 MIME，按后缀判断更可靠）
+        function mediaKind(nameOrKey) {
+            const ext = (nameOrKey || '').split('.').pop().toLowerCase();
+            if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'mpeg', '3gp', 'm4v'].includes(ext)) return 'video';
+            if (['mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'flac', 'weba'].includes(ext)) return 'audio';
+            return 'image';
+        }
+
+        const AUDIO_ICON = '<svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="width:38%;height:38%;opacity:0.45"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l10-2v13M9 19a2 2 0 11-4 0 2 2 0 014 0zm10-2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>';
+
+        /**
+         * 以裸二进制流式上传，body 直接是 File。
+         * 服务端该路径不经过内存，因此不受表单上传 20 MB 上限限制；
+         * 用 XHR 而非 fetch 是为了拿到真实上传进度，大文件（视频）尤其需要。
+         * @param {File} file 待上传文件
+         * @param {string} token 鉴权 token
+         * @param {(ratio:number)=>void} onProgress 进度回调，参数为 0~1
+         */
+        function sendFile(file, token, onProgress) {
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', '/upload');
+                xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+                // 头部只能放 ASCII；服务端仅取其后缀，无需解码
+                xhr.setRequestHeader('X-Upload-Filename', encodeURIComponent(file.name));
+                xhr.upload.onprogress = e => {
+                    if (e.lengthComputable) onProgress(e.loaded / e.total);
+                };
+                xhr.onload = () => {
+                    // 不能先解析再判状态：401 等错误返回的是纯文本，
+                    // 那样会在 status 检查之前就抛出，401 分支永远走不到。
+                    let data = null;
+                    try { data = JSON.parse(xhr.responseText); } catch { /* 非 JSON 响应 */ }
+                    resolve({ status: xhr.status, data, text: xhr.responseText });
+                };
+                xhr.onerror = () => reject(new Error('网络请求出错'));
+                xhr.send(file);
+            });
+        }
+
+        const ERROR_ICON = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+        const WARN_ICON = '<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" style="width:20px;height:20px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>';
+
+        /**
+         * 上传前被拒时在列表里留一条带原因的记录。
+         * 不用 toast：多选时后一条会覆盖前一条，看不出到底是哪个文件出了问题。
+         * @param {File} file 被拒的文件
+         * @param {string} reason 拒绝原因
+         */
+        function rejectFile(file, reason) {
+            const item = document.createElement('div');
+            item.className = 'upload-item';
+            item.innerHTML = '<div class="upload-item-thumb upload-item-thumb-audio">' + WARN_ICON + '</div>' +
+                '<div class="upload-item-info">' +
+                    '<div class="upload-item-name"></div>' +
+                    '<div class="upload-item-reason"></div>' +
+                '</div>' +
+                '<div class="upload-item-actions">' +
+                    '<div class="upload-item-status status-error">' + ERROR_ICON + '</div>' +
+                '</div>';
+            // 文件名与原因用 textContent 写入，避免文件名里的尖括号被当作标签
+            item.querySelector('.upload-item-name').textContent = file.name;
+            item.querySelector('.upload-item-reason').textContent = reason;
+            document.getElementById('upload-list').prepend(item);
+            showUploadModal();
+        }
+
         async function uploadFile(file) {
-            if (!file.type.startsWith('image/')) {
-                showToast('只允许上传图片文件', 'var(--danger)');
+            if (file.type && !MEDIA_PREFIXES.some(prefix => file.type.startsWith(prefix))) {
+                rejectFile(file, '只允许上传图片、视频或音频文件');
+                return;
+            }
+
+            // Cloudflare 在边缘按套餐拦截超大请求，Worker 收不到、也无法给出解释，
+            // 因此在发出去之前就挡下来，而不是让用户传完再吃一个裸的 413。
+            if (file.size > MAX_UPLOAD_BYTES) {
+                rejectFile(file, '文件 ' + formatSize(file.size) + ' 超过单次上传上限 ' + MAX_UPLOAD_MB + ' MB，请压缩后再传');
                 return;
             }
 
@@ -1310,9 +1456,16 @@ export class ImageService {
             const item = document.createElement('div');
             item.className = 'upload-item';
             item.id = id;
-            item.innerHTML = '<img class="upload-item-thumb" src="' + previewUrl + '">' +
+            const kind = mediaKind(file.name);
+            const thumb = kind === 'video'
+                ? '<video class="upload-item-thumb" src="' + previewUrl + '" muted playsinline preload="metadata"></video>'
+                : kind === 'audio'
+                    ? '<div class="upload-item-thumb upload-item-thumb-audio">' + AUDIO_ICON + '</div>'
+                    : '<img class="upload-item-thumb" src="' + previewUrl + '">';
+
+            item.innerHTML = thumb +
                 '<div class="upload-item-info">' +
-                    '<div class="upload-item-name">' + file.name + '</div>' +
+                    '<div class="upload-item-name"></div>' +
                     '<div class="upload-item-progress"><div class="progress-bar"></div></div>' +
                 '</div>' +
                 '<div class="upload-item-actions">' +
@@ -1320,10 +1473,8 @@ export class ImageService {
                         '<svg class="spin" style="width:16px;height:16px;opacity:0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>' +
                     '</div>' +
                 '</div>';
+            item.querySelector('.upload-item-name').textContent = file.name;
             uploadList.prepend(item);
-
-            const formData = new FormData();
-            formData.append('file', file);
 
             const token = localStorage.getItem('cf_photo_token');
             const progressBar = item.querySelector('.progress-bar');
@@ -1332,18 +1483,22 @@ export class ImageService {
 
             try {
                 statusText.innerHTML = '<svg class="spin" style="width:16px;height:16px;opacity:0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>';
-                progressBar.style.width = '30%';
+                progressBar.style.width = '0%';
 
-                const res = await fetch('/upload', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + token },
-                    body: formData
+                const res = await sendFile(file, token, ratio => {
+                    progressBar.style.width = Math.round(ratio * 100) + '%';
                 });
 
                 progressBar.style.width = '100%';
 
-                const data = await res.json();
-                if (data.result === 'success') {
+                if (res.status === 401) {
+                    localStorage.removeItem('cf_photo_token');
+                    location.reload();
+                    return;
+                }
+
+                const data = res.data;
+                if (data && data.result === 'success') {
                     statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
                     statusText.className = 'upload-item-status status-success';
 
@@ -1369,7 +1524,8 @@ export class ImageService {
                 } else {
                     statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
                     statusText.className = 'upload-item-status status-error';
-                    alert('上传失败: ' + data.message);
+                    // 纯文本错误（如平台层的 413）没有 message 字段，退回原文与状态码
+                    alert('上传失败: ' + (data?.message || res.text || ('HTTP ' + res.status)));
                 }
             } catch (e) {
                 statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
@@ -1448,7 +1604,7 @@ export class ImageService {
         function resetAndLoad() {
             currentCursor = null;
             const loadingEl = document.getElementById('loading');
-            loadingEl.textContent = '正在加载图片...';
+            loadingEl.textContent = '正在加载...';
             loadingEl.style.display = 'block';
             document.getElementById('image-grid').innerHTML = '';
             document.getElementById('load-more').style.display = 'none';
@@ -1515,7 +1671,7 @@ export class ImageService {
 
                 document.getElementById('load-more').style.display = currentCursor ? 'block' : 'none';
                 if (received === 0 && !append) {
-                    loadingEl.textContent = currentCursor ? '本次扫描未找到图片，可点击“加载更多”继续' : '暂无图片';
+                    loadingEl.textContent = currentCursor ? '本次扫描未找到文件，可点击“加载更多”继续' : '暂无文件';
                     loadingEl.style.display = 'block';
                 } else {
                     loadingEl.style.display = 'none';
@@ -1540,9 +1696,16 @@ export class ImageService {
                 // 唯一的 ID 用于在该卡片内操作图片
                 const imageId = 'img-' + Math.random().toString(36).substr(2, 9);
                 
+                const kind = mediaKind(img.key);
+                const preview = kind === 'video'
+                    ? \`<video id="\${imageId}" class="real-image" src="\${img.url}" muted playsinline preload="metadata"></video>\`
+                    : kind === 'audio'
+                        ? \`<div id="\${imageId}" class="real-image media-audio">\${AUDIO_ICON}</div>\`
+                        : \`<div id="\${imageId}" class="real-image"></div>\`;
+
                 card.innerHTML = \`
                     <div class="image-preview pulse" onclick="window.open('\${img.url}')">
-                        <div id="\${imageId}" class="real-image"></div>
+                        \${preview}
                     </div>
                     <div class="image-info">
                         <div class="image-path" title="\${img.key}">\${img.key}</div>
@@ -1569,25 +1732,38 @@ export class ImageService {
                     grid.appendChild(card);
                 }
 
-                // 异步预加载图片
-                const loader = new Image();
-                loader.src = img.url;
-                loader.onload = () => {
-                    const el = document.getElementById(imageId);
-                    if (el) {
-                        el.style.backgroundImage = \`url('\${img.url}')\`;
-                        el.classList.add('loaded');
-                        // 加载完成后移除外层 pulse 效果
-                        setTimeout(() => {
-                            el.parentElement.classList.remove('pulse');
-                        }, 600);
-                    }
+                // 就位后淡入并撤掉骨架屏的 pulse
+                const reveal = el => {
+                    el.classList.add('loaded');
+                    setTimeout(() => el.parentElement?.classList.remove('pulse'), 600);
                 };
+
+                if (kind === 'image') {
+                    // 异步预加载图片，避免半张图闪现
+                    const loader = new Image();
+                    loader.src = img.url;
+                    loader.onload = () => {
+                        const el = document.getElementById(imageId);
+                        if (el) {
+                            el.style.backgroundImage = \`url('\${img.url}')\`;
+                            reveal(el);
+                        }
+                    };
+                } else {
+                    const el = document.getElementById(imageId);
+                    // 视频等首帧解出来再淡入（依赖服务端的 Range 支持），音频没有画面直接显示
+                    if (el && kind === 'video') {
+                        el.addEventListener('loadeddata', () => reveal(el), { once: true });
+                        el.addEventListener('error', () => reveal(el), { once: true });
+                    } else if (el) {
+                        reveal(el);
+                    }
+                }
             });
         }
 
         async function deleteImage(key, btn) {
-            if (!confirm('确定要永久删除这张图片吗？此操作不可撤销。')) return;
+            if (!confirm('确定要永久删除这个文件吗？此操作不可撤销。')) return;
             
             const originalText = btn.textContent;
             btn.textContent = '删除中...';
@@ -1830,10 +2006,51 @@ export class ImageService {
             'image/heic': '.heic',
             'image/avif': '.avif',
             'image/bmp': '.bmp',
-            'image/tiff': '.tiff'
+            'image/tiff': '.tiff',
+
+            // 视频
+            'video/mp4': '.mp4',
+            'video/quicktime': '.mov',
+            'video/webm': '.webm',
+            'video/x-matroska': '.mkv',
+            'video/x-msvideo': '.avi',
+            'video/mpeg': '.mpeg',
+            'video/3gpp': '.3gp',
+            'video/x-m4v': '.m4v',
+
+            // 音频
+            'audio/mpeg': '.mp3',
+            'audio/mp4': '.m4a',
+            'audio/x-m4a': '.m4a',
+            'audio/aac': '.aac',
+            'audio/wav': '.wav',
+            'audio/x-wav': '.wav',
+            'audio/ogg': '.ogg',
+            'audio/opus': '.opus',
+            'audio/flac': '.flac',
+            'audio/x-flac': '.flac',
+            'audio/webm': '.weba'
         };
 
-        return mimeMap[contentType.toLowerCase()] || '';
+        // MIME 可能带参数（如 "video/mp4; codecs=avc1"），只取类型本身
+        return mimeMap[contentType.toLowerCase().split(';')[0].trim()] || '';
+    }
+
+    /**
+     * 推断存储用的扩展名：优先原始文件名，其次 MIME 类型
+     * 文件名来自客户端，只接受纯字母数字的后缀，避免把奇怪的字符带进存储路径
+     * @param {string} filename 原始文件名，可为空
+     * @param {string} contentType MIME 类型，可为空
+     * @returns {string} 形如 '.mp4' 的扩展名，无法判断时为空串
+     * @private
+     */
+    _extensionFrom(filename, contentType) {
+        if (filename && filename.includes('.')) {
+            const candidate = filename.slice(filename.lastIndexOf('.') + 1).toLowerCase();
+            if (/^[a-z0-9]{1,8}$/.test(candidate)) return `.${candidate}`;
+        }
+
+        return this._getExtension(contentType);
     }
 
     /**

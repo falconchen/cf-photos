@@ -65,19 +65,21 @@ export class WebDAVStorage {
         }
     }
 
-    async get(key) {
+    /** options.range 为原始 Range 头，透传给 WebDAV 由其分片；后端接受时返回 206。 */
+    async get(key, options = {}) {
         this.validate(key);
-        const response = await this.send(key, 'GET');
+        const response = await this.send(key, 'GET', options.range ? { headers: { Range: options.range } } : {});
         if (response.status === 404) {
             await response.body?.cancel();
             return null;
         }
-        await this.check(response, [200]);
+        await this.check(response, [200, 206]);
         return {
             body: response.body,
+            status: response.status,
             httpEtag: response.headers.get('etag'),
             writeHttpMetadata(headers) {
-                for (const name of ['content-type', 'content-length', 'last-modified']) {
+                for (const name of ['content-type', 'content-length', 'last-modified', 'content-range', 'accept-ranges']) {
                     if (response.headers.has(name)) headers.set(name, response.headers.get(name));
                 }
             },
