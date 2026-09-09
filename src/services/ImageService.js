@@ -9,12 +9,38 @@ const BASE60 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx';
 // 未配置 TIMEZONE_OFFSET 时使用的默认时区偏移（东八区）
 const DEFAULT_TIMEZONE_OFFSET = 8;
 
+// Cloudflare 按账户套餐在边缘强制单次请求体上限（Free/Pro 100 MB、Business 200 MB、
+// Enterprise 默认 500 MB 且可自助调到 5 GB），超限的请求根本到不了 Worker。
+// 默认按 Free/Pro 的 100 MB 留出余量取 95，可用 MAX_UPLOAD_MB 覆盖。
+const DEFAULT_MAX_UPLOAD_MB = 95;
+
 /**
  * 解析环境变量中的时区偏移，非法值回退到默认值
  * Workers 运行时恒为 UTC，故所有本地时间都由该偏移换算得出
  * @param {string|number|undefined} value 环境变量 TIMEZONE_OFFSET 的原始值
  * @returns {number} 合法的时区偏移（小时，允许 0.5/0.75 等半时区）
  */
+/**
+ * 解析单次上传体积上限（MB）
+ * 该上限由 Cloudflare 账户套餐决定并在边缘强制，Worker 无从干预，
+ * 因此这里只用于上传前的预检提示，让用户不必传完才吃一个没有解释的 413。
+ * @param {string|number} value 环境变量 MAX_UPLOAD_MB
+ * @returns {number} 合法的上限（MB），非法时回退到默认值
+ */
+function parseMaxUploadMB(value) {
+    if (value === undefined || value === null || value === '') {
+        return DEFAULT_MAX_UPLOAD_MB;
+    }
+
+    const limit = Number(value);
+    if (!Number.isFinite(limit) || limit <= 0 || limit > 5120) {
+        console.warn(`[Config] MAX_UPLOAD_MB 非法："${value}"，回退到 ${DEFAULT_MAX_UPLOAD_MB}`);
+        return DEFAULT_MAX_UPLOAD_MB;
+    }
+
+    return limit;
+}
+
 function parseTimezoneOffset(value) {
     if (value === undefined || value === null || value === '') {
         return DEFAULT_TIMEZONE_OFFSET;
@@ -97,11 +123,12 @@ export class ImageService {
     /**
      * 构造函数
      * @param {WebDAVStorage} storage WebDAV 存储对象
-     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET
+     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET 与 MAX_UPLOAD_MB
      */
     constructor(storage, env = {}) {
         this.storage = storage;
         this.timezoneOffset = parseTimezoneOffset(env?.TIMEZONE_OFFSET);
+        this.maxUploadMB = parseMaxUploadMB(env?.MAX_UPLOAD_MB);
     }
 
     /**
@@ -266,6 +293,32 @@ export class ImageService {
     }
 
     /**
+     * 把已解码的图片字节写入存储，返回结构化结果而不是 Response
+     * 供 uploadWithBase64 与 MCP 工具共用。注意 contentType 与 extension 必须由调用方
+     * 先解析好再传进来：uploadWithBase64 的兜底是 image/jpeg，uploadFormData 的兜底是
+     * application/octet-stream 且优先用原文件名的后缀，把兜底逻辑挪进这里会悄悄改掉其中一条。
+     * @param {string} origin 形如 https://img.example.com，用于拼接绝对 URL
+     * @param {ArrayBuffer|Uint8Array} buffer 图片字节
+     * @param {string} contentType 存储用的 MIME 类型，调用方须自行兜底
+     * @param {string} [extension=''] 文件后缀名（含点，如 .png），空串表示无后缀
+     * @returns {Promise<{path: string, url: string, contentType: string, size: number}>}
+     * @throws {Error} 存储失败时抛出，由调用方决定如何呈现
+     */
+    async uploadBuffer(origin, buffer, contentType, extension = '') {
+        const path = this._generateRandomPath(extension);
+        await this.storage.put(path.slice(1), buffer, {
+            httpMetadata: { contentType },
+        });
+
+        return {
+            path: path,
+            url: `${origin}${path}`,
+            contentType: contentType,
+            size: buffer.byteLength ?? buffer.length
+        };
+    }
+
+    /**
      * 处理 Base64 字符串上传 (供 JSON 接口使用)
      * @param {Request} request 原始请求对象
      * @param {string} base64String Base64 编码的图片数据
@@ -313,24 +366,19 @@ export class ImageService {
 
             console.log(`[Debug] 最终确定的后缀名: "${extension}", Content-Type: "${contentType || 'image/jpeg'}"`);
 
-            const path = this._generateRandomPath(extension);
-            const key = path.slice(1);
-
-            await this.storage.put(key, fileBuffer, {
-                httpMetadata: {
-                    contentType: contentType || 'image/jpeg',
-                },
-            });
-
-            const urlObj = new URL(request.url);
-            const domain = `${urlObj.protocol}//${urlObj.host}`;
+            const { path, url } = await this.uploadBuffer(
+                new URL(request.url).origin,
+                fileBuffer,
+                contentType || 'image/jpeg',
+                extension
+            );
 
             return new Response(JSON.stringify({
                 result: 'success',
                 code: 200,
                 srcName: 'base64_image',
                 path: path,
-                url: `${domain}${path}`,
+                url: url,
                 del: '',
                 thumb: ''
             }), {
@@ -864,6 +912,13 @@ export class ImageService {
             text-overflow: ellipsis;
         }
 
+        .upload-item-reason {
+            font-size: 0.75rem;
+            color: var(--danger);
+            margin-top: 0.3rem;
+            line-height: 1.4;
+        }
+
         .upload-item-progress {
             height: 4px;
             background: rgba(255, 255, 255, 0.1);
@@ -1307,6 +1362,9 @@ export class ImageService {
         }
 
         const MEDIA_PREFIXES = ['image/', 'video/', 'audio/'];
+        // 由服务端按 MAX_UPLOAD_MB 注入；上限本身由 Cloudflare 套餐在边缘强制
+        const MAX_UPLOAD_MB = ${this.maxUploadMB};
+        const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 
         // 判断媒体类别，用于选择预览方式（列表接口不一定带 MIME，按后缀判断更可靠）
         function mediaKind(nameOrKey) {
@@ -1349,9 +1407,43 @@ export class ImageService {
             });
         }
 
+        const ERROR_ICON = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+        const WARN_ICON = '<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" style="width:20px;height:20px"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>';
+
+        /**
+         * 上传前被拒时在列表里留一条带原因的记录。
+         * 不用 toast：多选时后一条会覆盖前一条，看不出到底是哪个文件出了问题。
+         * @param {File} file 被拒的文件
+         * @param {string} reason 拒绝原因
+         */
+        function rejectFile(file, reason) {
+            const item = document.createElement('div');
+            item.className = 'upload-item';
+            item.innerHTML = '<div class="upload-item-thumb upload-item-thumb-audio">' + WARN_ICON + '</div>' +
+                '<div class="upload-item-info">' +
+                    '<div class="upload-item-name"></div>' +
+                    '<div class="upload-item-reason"></div>' +
+                '</div>' +
+                '<div class="upload-item-actions">' +
+                    '<div class="upload-item-status status-error">' + ERROR_ICON + '</div>' +
+                '</div>';
+            // 文件名与原因用 textContent 写入，避免文件名里的尖括号被当作标签
+            item.querySelector('.upload-item-name').textContent = file.name;
+            item.querySelector('.upload-item-reason').textContent = reason;
+            document.getElementById('upload-list').prepend(item);
+            showUploadModal();
+        }
+
         async function uploadFile(file) {
             if (file.type && !MEDIA_PREFIXES.some(prefix => file.type.startsWith(prefix))) {
-                showToast('只允许上传图片、视频或音频文件', 'var(--danger)');
+                rejectFile(file, '只允许上传图片、视频或音频文件');
+                return;
+            }
+
+            // Cloudflare 在边缘按套餐拦截超大请求，Worker 收不到、也无法给出解释，
+            // 因此在发出去之前就挡下来，而不是让用户传完再吃一个裸的 413。
+            if (file.size > MAX_UPLOAD_BYTES) {
+                rejectFile(file, '文件 ' + formatSize(file.size) + ' 超过单次上传上限 ' + MAX_UPLOAD_MB + ' MB，请压缩后再传');
                 return;
             }
 
@@ -1373,7 +1465,7 @@ export class ImageService {
 
             item.innerHTML = thumb +
                 '<div class="upload-item-info">' +
-                    '<div class="upload-item-name">' + file.name + '</div>' +
+                    '<div class="upload-item-name"></div>' +
                     '<div class="upload-item-progress"><div class="progress-bar"></div></div>' +
                 '</div>' +
                 '<div class="upload-item-actions">' +
@@ -1381,6 +1473,7 @@ export class ImageService {
                         '<svg class="spin" style="width:16px;height:16px;opacity:0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>' +
                     '</div>' +
                 '</div>';
+            item.querySelector('.upload-item-name').textContent = file.name;
             uploadList.prepend(item);
 
             const token = localStorage.getItem('cf_photo_token');

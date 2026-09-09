@@ -20,6 +20,8 @@
 
 > **大小限制**：Multipart 与 JSON(Base64) 会把整个文件读进 Worker 内存，上限 **20 MB**，超出返回 413；这两种方式还要求带 `Content-Length`，分块传输返回 411。二进制流式上传（裸二进制 `POST` / `PUT /i/...`）不经过内存、**不受此限制**，只受 Cloudflare 套餐的请求体上限约束（Free/Pro 100 MB、Business 200 MB、Enterprise 更高，超限由边缘直接返回 413）。
 >
+> 更上层还有 Cloudflare 按账户套餐在边缘强制的单次请求体上限，超限请求根本到不了 Worker。后台会在上传前按 `MAX_UPLOAD_MB`（`wrangler.toml` 中配置，默认 95）预检并直接给出提示，换套餐时改这个值即可。
+>
 > 20 MB 覆盖除 ProRAW 外的全部 iPhone 原图（12MP HEIC 约 2~4 MB、48MP HEIF Max 约 6~8 MB、全景图 10~25 MB）。ProRAW（12MP 约 25 MB、48MP 约 75 MB）**只能走流式上传**。
 
 #### 1. Multipart (表单) 上传 (推荐,uPic 默认)
