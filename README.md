@@ -188,7 +188,7 @@ curl -X POST --data-binary "@wang.jpeg" \
 
 - **传输**：Streamable HTTP，无状态。只接受 `POST`，永远返回单个 JSON-RPC 响应，不使用 SSE，也不下发会话 id。`GET` / `DELETE` 返回 405，`OPTIONS` 返回 CORS 预检。
 - **协议版本**：对外声明 `2025-11-25`，可回显 `2025-06-18` / `2025-03-26`。
-- **鉴权**：`Authorization: Bearer <AUTH_TOKEN>`，与 `/admin/*` 同一个 token。**未配置 `AUTH_TOKEN` 时该端点返回 503**，而不是像其它端点那样放行——一个无鉴权的 MCP 端点等于把「由模型远程驱动的服务端抓取器 + 公开写入原语」暴露给所有人。
+- **鉴权**：`Authorization: Bearer <AUTH_TOKEN>`，与 `/admin/*` 同一个 token；也接受 OAuth 访问令牌（见下方「接入 claude.ai 网页版」）。**未配置 `AUTH_TOKEN` 时该端点返回 503**，而不是像其它端点那样放行——一个无鉴权的 MCP 端点等于把「由模型远程驱动的服务端抓取器 + 公开写入原语」暴露给所有人。
 
 ### 工具 `upload_image`
 
@@ -220,6 +220,31 @@ claude mcp add --transport http cf-photos-dev http://127.0.0.1:8787/mcp \
 ```
 
 `--header` 的值含空格，必须加引号。加 `--scope user` 可在所有项目里使用。用 `claude mcp list` 或会话内的 `/mcp` 查看连接状态与工具列表。
+
+### 接入 claude.ai 网页版 / 手机端
+
+claude.ai 的自定义连接器**不支持填写静态 `Authorization` 头**（那是 beta 白名单功能），只认 OAuth，所以本项目自带一套 OAuth 2.1 授权服务端，无需任何额外绑定或依赖。
+
+在 claude.ai 里 **Customize → Connectors → Add custom connector**，URL 填 `https://your-worker.workers.dev/mcp`，其余留空直接添加（OAuth 客户端会自动注册）。点 Connect 后会跳到本图床的授权页，粘贴 `AUTH_TOKEN` 即可完成授权。
+
+> 必须是已部署的公网 HTTPS 地址，claude.ai 连不上 `127.0.0.1`。
+
+几点须知：
+
+- 授权页的口令就是 `AUTH_TOKEN` 本身——图床只有一个主人，不另设账号体系。
+- 令牌无状态：内容签在令牌里，用 `AUTH_TOKEN` 派生的密钥做 HMAC，服务端不存任何东西。因此**无法单独吊销某一枚令牌**；要全部作废就换 `AUTH_TOKEN`，此前签发的一切（含已注册的客户端）同时失效，各端重新授权即可。
+- 回调地址白名单只放行 `claude.ai` / `claude.com` 与本机回环地址，别的一律在注册阶段就拒掉。
+- 访问令牌 30 天、刷新令牌 90 天、授权码 10 分钟；授权强制 PKCE（S256）。
+- Claude Code、Claude Desktop 不受影响，继续用 `--header "Authorization: Bearer ..."` 直连即可，两种凭据并存。
+
+### 接入 ChatGPT
+
+ChatGPT 的自定义 MCP 连接器**只支持 OAuth**，连「无认证」和 API key 都不给选，所以同样走上面这套。先在设置里打开 developer mode，然后新建插件：**连接**填 `https://your-worker.workers.dev/mcp`，**身份验证**选 `OAuth`，其余留空（客户端自动注册）。连接时会跳到本图床的授权页，粘贴 `AUTH_TOKEN` 即可。
+
+- 回调地址白名单已包含 `chatgpt.com` 的两种形态（`/connector_platform_oauth_redirect` 与每连接一个的 `/connector/oauth/{callback_id}`）。
+- 服务端声明了 RFC 9207 的 `authorization_response_iss_parameter_supported` 并在每个授权响应里回带 `iss`，因此 ChatGPT 会使用稳定的那个回调地址。
+- ChatGPT 会按 RFC 8707 传 `resource`；指向本站 MCP 地址以外的值一律以 `invalid_target` 拒绝。
+- `upload_image` 是写操作，developer mode 下每次调用可能要你确认。deep research / company knowledge 模式要求服务端提供 `search` / `fetch` 两个工具，本图床不提供，那两个模式用不了。
 
 ### 直接用 cURL 调试
 
