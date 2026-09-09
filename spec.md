@@ -22,6 +22,7 @@
 - **描述**: 根据路径从 WebDAV 读取并返回图片内容。
 - **响应**: 
   - 成功: 返回图片二进制流，`Content-Type` 为对应的图片类型。
+  - 安全头: 恒定下发 `Content-Security-Policy: default-src 'none'; script-src 'none'; sandbox` 与 `X-Content-Type-Options: nosniff`，防止上传内容在本站域名下执行脚本；无法识别或属于文档类的类型改写为 `application/octet-stream` + `Content-Disposition: attachment`。
   - 失败 (文件不存在): 返回 404 Not Found。
   - 失败 (系统错误): 返回 500 Internal Server Error。
 

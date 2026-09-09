@@ -13,8 +13,14 @@
 直接访问图片 URL：
 `GET https://your-worker.workers.dev/i/2026/02/25/abc1234.jpeg`
 
+读取接口对所有文件下发 `Content-Security-Policy: default-src 'none'; script-src 'none'; sandbox` 与 `X-Content-Type-Options: nosniff`。这是为了封掉存储型 XSS：后台页面与 `/i/...` 同源，而 Token 就存在浏览器的 localStorage 里，一旦上传的内容能在本站域名下执行脚本就等于把 Token 交出去。`sandbox` 只在响应被当作**文档打开**时生效，`<img>` / `<video>` / `<audio>` 这类子资源加载完全不受影响，因此内嵌显示与外站热链都照常工作。
+
 ### 上传文件
 支持图片、视频与音频(扩展名由 `Content-Type` 或原始文件名推断)。图片/视频/音频的读取接口均支持 `Range` 请求,`<video>` / `<audio>` 可以正常拖拽定位。
+
+会被浏览器当作网页打开的类型与后缀一律拒绝，返回 **415**：`text/html`、`application/xhtml+xml`、`xml` 与 `javascript` 系列，以及 `.html` / `.htm` / `.xhtml` / `.xht` / `.shtml` / `.xml` / `.xsl` / `.xslt` / `.js` / `.mjs` / `.cjs`。四条上传路径(multipart、JSON base64、裸二进制、`PUT /i/...`)都会检查，前端不做校验也拦得住。
+
+**SVG 是允许的**——它是正当的图床格式,内嵌到 `<img>` 里本来就不执行脚本。直接用浏览器打开一个含 `<script>` 的 SVG 时,图形照常显示,但脚本被 `sandbox` 挡下(控制台会报 `Blocked script execution ... the document's frame is sandboxed`),而且此时页面处于不透明源,读 `localStorage` 会直接抛 `SecurityError`。
 
 本项目支持三种上传方式,适配 uPic、curl 等多种客户端。所有上传接口均位于 `/upload`。
 
@@ -280,7 +286,9 @@ macOS 用 launchd 的 plist 示例见 `scripts/webdav-backup.sh --help`。
 - 列表使用 Depth:1 逐级遍历，通过游标继续当前目录；每页最多扫描 35 个目录，可能返回空列表但仍带有下一页游标。WebDAV 没有快照分页，并发修改时应刷新列表。
 - 管理后台遇到「空列表但有游标」时会自动带游标继续请求（单次操作最多 20 轮），因此深层目录不会被误显示为“暂无图片”；仍未找到时保留“加载更多”按钮供继续扫描。
 - 年份、月份、日期筛选直接缩小远端目录范围；大图库推荐按日期筛选，减少网络请求。
-- 图片响应保留远端 Content-Type、ETag 和 Last-Modified，并缓存一天；删除后已有客户端缓存可能继续有效。
+- 图片响应保留远端 ETag 和 Last-Modified，并缓存一天；删除后已有客户端缓存可能继续有效。
+- Content-Type 大体沿用远端返回值，但有两处调整：远端不回类型或只回 `application/octet-stream` 时，按文件后缀回填规范类型（`nosniff` 会禁掉浏览器嗅探，不回填会让这类文件显示不出来）；类型或后缀属于文档类、或回填后仍识别不出时，改写为 `application/octet-stream` 并加 `Content-Disposition: attachment`。
+- 注意 WebDAV 后端可能自行按后缀重新推导 Content-Type 而忽略上传时声明的值（Apache 系的后端就是如此），因此**文件后缀才是决定浏览器如何处理的关键**。
 - 图片路径限制在 `i/`，拒绝目录穿越；删除接口禁止删除目录。WebDAV 重定向不会自动跟随，避免凭据发往其他地址。
 - 执行 `npm test` 验证协议适配、分页、路径和错误处理；执行 `npx wrangler deploy --dry-run` 验证 Worker 打包。
 - 真实验证应上传独立测试图片，核对下载字节、列表及日期筛选，再删除该测试图片并确认返回 404。
