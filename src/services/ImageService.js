@@ -14,6 +14,66 @@ const DEFAULT_TIMEZONE_OFFSET = 8;
 // 默认按 Free/Pro 的 100 MB 留出余量取 95，可用 MAX_UPLOAD_MB 覆盖。
 const DEFAULT_MAX_UPLOAD_MB = 95;
 
+// MIME → 扩展名映射。提到模块作用域是为了让「按扩展名反查 MIME」与它共用同一张表，
+// 否则两张表迟早会漂移。
+const MIME_MAP = {
+    // 图片
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/gif': '.gif',
+    'image/webp': '.webp',
+    'image/svg+xml': '.svg',
+    'image/x-icon': '.ico',
+    'image/heic': '.heic',
+    'image/avif': '.avif',
+    'image/bmp': '.bmp',
+    'image/tiff': '.tiff',
+
+    // 视频
+    'video/mp4': '.mp4',
+    'video/quicktime': '.mov',
+    'video/webm': '.webm',
+    'video/x-matroska': '.mkv',
+    'video/x-msvideo': '.avi',
+    'video/mpeg': '.mpeg',
+    'video/3gpp': '.3gp',
+    'video/x-m4v': '.m4v',
+
+    // 音频
+    'audio/mpeg': '.mp3',
+    'audio/mp4': '.m4a',
+    'audio/x-m4a': '.m4a',
+    'audio/aac': '.aac',
+    'audio/wav': '.wav',
+    'audio/x-wav': '.wav',
+    'audio/ogg': '.ogg',
+    'audio/opus': '.opus',
+    'audio/flac': '.flac',
+    'audio/x-flac': '.flac',
+    'audio/webm': '.weba'
+};
+
+// 扩展名 → MIME 的反查表，由 MIME_MAP 反转而来。同一后缀对应多个 MIME 时先到先得
+// （如 .jpg 取 image/jpeg 而非 image/jpg），这正是我们想要的规范写法。
+const EXTENSION_TO_MIME = Object.entries(MIME_MAP).reduce((map, [mime, extension]) => {
+    if (!(extension in map)) map[extension] = mime;
+    return map;
+}, {});
+
+// 被浏览器当作文档打开时会执行脚本或渲染成页面的类型与后缀。
+// 注意 image/svg+xml 与 .svg 刻意不在其中：SVG 作为图床格式保留，改由 fetchImage
+// 下发的 CSP sandbox 让它无害（SVG 在 <img> 里本就不执行脚本）。
+const RISKY_MIME_TYPES = new Set([
+    'text/html', 'application/xhtml+xml', 'text/xml', 'application/xml',
+    'text/xsl', 'application/xslt+xml',
+    'text/javascript', 'application/javascript', 'application/ecmascript', 'text/ecmascript'
+]);
+const RISKY_EXTENSIONS = new Set([
+    '.html', '.htm', '.xhtml', '.xht', '.shtml',
+    '.xml', '.xsl', '.xslt', '.js', '.mjs', '.cjs'
+]);
+
 /**
  * 解析环境变量中的时区偏移，非法值回退到默认值
  * Workers 运行时恒为 UTC，故所有本地时间都由该偏移换算得出
@@ -168,6 +228,44 @@ export class ImageService {
             object.writeHttpMetadata(headers);
             if (object.httpEtag) headers.set('etag', object.httpEtag);
 
+            // 下面三步共同封掉「上传的内容以本站域名执行脚本」这条存储型 XSS 路径。
+            // 后台页面由同一个 Worker 在 / 提供，AUTH_TOKEN 就存在同源的 localStorage
+            // 里，所以这里一旦让脚本跑起来，等于把 token 交出去。
+
+            // 1) 回填 Content-Type。部分 WebDAV 后端对图片只回 application/octet-stream
+            //    或干脆不回，今天靠浏览器嗅探还能显示；下面要加 nosniff 禁掉嗅探，
+            //    不先按后缀回填就会把正常图片变成一片空白。
+            let mime = (headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            if (!mime || mime === 'application/octet-stream') {
+                const guessed = this._mimeFromExtension(key);
+                if (guessed) {
+                    headers.set('content-type', guessed);
+                    mime = guessed;
+                }
+            }
+
+            // 2) 危险或无法识别的类型强制降级为下载。存量里可能已经躺着 .html：只靠 CSP
+            //    不够，sandbox 挡得住脚本，但 HTML 照样渲染，一个不需要脚本的钓鱼页仍然
+            //    成立。三种情况都要降级：
+            //      - MIME 本身是文档类型；
+            //      - 后缀是文档类型（有些 WebDAV 后端对 .html 压根不回 Content-Type，
+            //        只看 MIME 会漏掉，实测 teracloud 就是这样）；
+            //      - 回填之后仍然拿不到任何类型（空 Content-Type 配 nosniff 的行为各浏览器
+            //        不一致，按未知内容处理才安全）。
+            const extension = this._extensionOf(key);
+            if (!mime || RISKY_MIME_TYPES.has(mime) || RISKY_EXTENSIONS.has(extension)) {
+                headers.set('content-type', 'application/octet-stream');
+                headers.set('Content-Disposition', 'attachment');
+            }
+
+            // 3) 恒定的安全头。sandbox 不带 allow-scripts 时脚本不执行，且源变成不透明源，
+            //    localStorage 直接取不到。关键在于 sandbox 只作用于「响应被当作文档打开」，
+            //    <img> / <video> 这类子资源加载完全不受影响，所以 SVG 仍可正常内嵌显示、
+            //    外站热链也照常工作。不加 Cross-Origin-Resource-Policy：那会打断热链，
+            //    而热链正是图床要的。
+            headers.set('Content-Security-Policy', "default-src 'none'; script-src 'none'; sandbox");
+            headers.set('X-Content-Type-Options', 'nosniff');
+
             // 添加缓存控制（可选，此处暂设为 1 天）
             headers.set('Cache-Control', 'public, max-age=86400');
 
@@ -249,6 +347,9 @@ export class ImageService {
             // 确定后缀名：优先取原始文件名的后缀，其次由 MIME 类型推断
             const extension = this._extensionFrom(originalFilename, contentType);
             console.log(`[Debug] 推断后缀名: "${extension}"`);
+
+            const risky = this._rejectRiskyUpload(contentType, extension);
+            if (risky) return this._unsupportedType(risky);
 
             console.log(`[Debug] 最终确定的后缀名: "${extension}", 存储使用的 Content-Type: "${contentType || 'application/octet-stream'}"`);
 
@@ -366,6 +467,9 @@ export class ImageService {
 
             console.log(`[Debug] 最终确定的后缀名: "${extension}", Content-Type: "${contentType || 'image/jpeg'}"`);
 
+            const risky = this._rejectRiskyUpload(contentType, extension);
+            if (risky) return this._unsupportedType(risky);
+
             const { path, url } = await this.uploadBuffer(
                 new URL(request.url).origin,
                 fileBuffer,
@@ -408,6 +512,10 @@ export class ImageService {
     async uploadWithAutoPath(request, body, contentType, filename = '') {
         try {
             const extension = this._extensionFrom(filename, contentType);
+
+            const risky = this._rejectRiskyUpload(contentType, extension);
+            if (risky) return this._unsupportedType(risky);
+
             const path = this._generateRandomPath(extension);
             const key = path.slice(1);
 
@@ -1908,6 +2016,19 @@ export class ImageService {
         });
     }
 
+    /**
+     * 构造 415 响应，用于拒绝会被浏览器当作文档执行的上传
+     * @param {string} message 中文原因
+     * @returns {Response}
+     * @private
+     */
+    _unsupportedType(message) {
+        return new Response(JSON.stringify({ result: 'error', code: 415, message }), {
+            status: 415,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' }
+        });
+    }
+
 
     /**
      * 获取 WebDAV 中的图片列表
@@ -1995,45 +2116,55 @@ export class ImageService {
     _getExtension(contentType) {
         if (!contentType) return '';
 
-        const mimeMap = {
-            'image/jpeg': '.jpg',
-            'image/jpg': '.jpg',
-            'image/png': '.png',
-            'image/gif': '.gif',
-            'image/webp': '.webp',
-            'image/svg+xml': '.svg',
-            'image/x-icon': '.ico',
-            'image/heic': '.heic',
-            'image/avif': '.avif',
-            'image/bmp': '.bmp',
-            'image/tiff': '.tiff',
-
-            // 视频
-            'video/mp4': '.mp4',
-            'video/quicktime': '.mov',
-            'video/webm': '.webm',
-            'video/x-matroska': '.mkv',
-            'video/x-msvideo': '.avi',
-            'video/mpeg': '.mpeg',
-            'video/3gpp': '.3gp',
-            'video/x-m4v': '.m4v',
-
-            // 音频
-            'audio/mpeg': '.mp3',
-            'audio/mp4': '.m4a',
-            'audio/x-m4a': '.m4a',
-            'audio/aac': '.aac',
-            'audio/wav': '.wav',
-            'audio/x-wav': '.wav',
-            'audio/ogg': '.ogg',
-            'audio/opus': '.opus',
-            'audio/flac': '.flac',
-            'audio/x-flac': '.flac',
-            'audio/webm': '.weba'
-        };
-
         // MIME 可能带参数（如 "video/mp4; codecs=avc1"），只取类型本身
-        return mimeMap[contentType.toLowerCase().split(';')[0].trim()] || '';
+        return MIME_MAP[contentType.toLowerCase().split(';')[0].trim()] || '';
+    }
+
+    /**
+     * 根据存储 key 的扩展名反查规范的 MIME 类型
+     * 用于 fetchImage：部分 WebDAV 后端对图片只回 application/octet-stream 或干脆不回
+     * Content-Type，加了 nosniff 之后浏览器不再嗅探，不回填就会渲染不出来。
+     * @param {string} key 存储 key，如 i/2026/09/09/AbCdEf12.png
+     * @returns {string} 规范 MIME，识别不出时为空串
+     * @private
+     */
+    _mimeFromExtension(key) {
+        return EXTENSION_TO_MIME[this._extensionOf(key)] || '';
+    }
+
+    /**
+     * 取出 key 末段的小写后缀（含点）
+     * 只认最后一段里的点，避免把 i/2026.09/name 这类目录名里的点当成后缀
+     * @param {string} key 存储 key
+     * @returns {string} 后缀，没有后缀时为空串
+     * @private
+     */
+    _extensionOf(key) {
+        const slash = key.lastIndexOf('/');
+        const dot = key.lastIndexOf('.');
+        return dot > slash ? key.slice(dot).toLowerCase() : '';
+    }
+
+    /**
+     * 检查上传的类型与后缀会不会被浏览器当作文档执行
+     * 只阻断 HTML / XHTML / XML / JS 系列。SVG 刻意放行——它是合法的图床格式，
+     * 由 fetchImage 下发的 CSP sandbox 兜住，见该方法的注释。
+     * @param {string} contentType 客户端给出的 MIME
+     * @param {string} extension 最终要落盘的后缀（含点，可为空串）
+     * @returns {string|null} 需要拒绝时返回中文原因，允许时返回 null
+     * @private
+     */
+    _rejectRiskyUpload(contentType, extension) {
+        const mime = (contentType || '').toLowerCase().split(';')[0].trim();
+        if (RISKY_MIME_TYPES.has(mime)) {
+            return `不允许上传 ${mime} 类型的文件：它会被浏览器当作网页打开，可能在本站域名下执行脚本`;
+        }
+
+        if (extension && RISKY_EXTENSIONS.has(extension.toLowerCase())) {
+            return `不允许上传 ${extension} 文件：该后缀会被浏览器当作网页打开，可能在本站域名下执行脚本`;
+        }
+
+        return null;
     }
 
     /**
@@ -2063,6 +2194,16 @@ export class ImageService {
     async uploadImage(path, body, contentType) {
         try {
             const key = decodeURIComponent(path.startsWith('/') ? path.slice(1) : path);
+
+            // 这条路径的后缀由客户端在 URL 里完全指定，是最直接的一条注入路
+            const dot = key.lastIndexOf('.');
+            const risky = this._rejectRiskyUpload(contentType, dot < 0 ? '' : key.slice(dot));
+            if (risky) {
+                return new Response(risky, {
+                    status: 415,
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                });
+            }
 
             // 执行上传
             await this.storage.put(key, body, {
