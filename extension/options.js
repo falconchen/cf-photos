@@ -1,14 +1,24 @@
 /**
- * 设置页：图床地址、Token、复制格式与开关
+ * 设置页：图床地址、Token、复制格式、主题、通知位置与开关
  */
 
-import { DEFAULT_SETTINGS, LINK_FORMATS, normalizeEndpoint } from './lib/shared.js';
+import {
+    DEFAULT_SETTINGS,
+    LINK_FORMATS,
+    THEMES,
+    TOAST_POSITIONS,
+    normalizeEndpoint,
+    normalizeTheme,
+    normalizeToastPosition
+} from './lib/shared.js';
 
 const $ = id => document.getElementById(id);
 const statusEl = $('status');
 
-for (const [value, label] of Object.entries(LINK_FORMATS)) {
-    $('format').add(new Option(label, value));
+for (const [id, options] of [['format', LINK_FORMATS], ['theme', THEMES], ['toastPosition', TOAST_POSITIONS]]) {
+    for (const [value, label] of Object.entries(options)) {
+        $(id).add(new Option(label, value));
+    }
 }
 
 const settings = { ...DEFAULT_SETTINGS, ...await chrome.storage.local.get(Object.keys(DEFAULT_SETTINGS)) };
@@ -17,6 +27,13 @@ $('token').value = settings.token;
 $('format').value = settings.format;
 $('autoCopy').checked = settings.autoCopy;
 $('notify').checked = settings.notify;
+$('theme').value = normalizeTheme(settings.theme);
+$('toastPosition').value = normalizeToastPosition(settings.toastPosition);
+
+// 选中即预览，保存后才写入存储；theme.js 监听存储变化，弹窗与本页随之同步
+$('theme').addEventListener('change', () => {
+    document.documentElement.dataset.theme = normalizeTheme($('theme').value);
+});
 
 $('toggle-token').addEventListener('click', () => {
     const hidden = $('token').type === 'password';
@@ -71,7 +88,9 @@ function readForm() {
         token: $('token').value.trim(),
         format: $('format').value,
         autoCopy: $('autoCopy').checked,
-        notify: $('notify').checked
+        notify: $('notify').checked,
+        theme: normalizeTheme($('theme').value),
+        toastPosition: normalizeToastPosition($('toastPosition').value)
     };
 }
 

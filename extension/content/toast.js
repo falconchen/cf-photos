@@ -1,6 +1,6 @@
 /**
  * 页面内通知：由后台通过 chrome.scripting.executeScript 注入到页面顶层 frame，
- * 仿 macOS 通知横幅，从右上角侧滑进入；配色与 PhotoFlare 图床后台一致。
+ * 仿 macOS 通知横幅，从所在一侧滑入；位置（四角）与配色（深色 / 浅色）由每次 show() 传入，与图床后台一致。
  *
  * 运行在扩展的隔离世界里，window 上的挂载只有本扩展可见，页面脚本碰不到。
  * 样式放在 closed Shadow DOM 里，并用 adoptedStyleSheets 注入——构造样式表属于
@@ -11,17 +11,23 @@
 
     const MAX_TOASTS = 4;
     const DISMISS_DISTANCE = 80;
+    const POSITIONS = ['top-right', 'top-left', 'bottom-left', 'bottom-right'];
 
     const css = `
 :host { all: initial; }
 .stack {
   position: fixed; top: 12px; right: 12px; z-index: 2147483647;
+  /* 滑入滑出的起点：右侧从右边进，左侧从左边进 */
+  --offscreen: calc(100% + 24px);
   display: flex; flex-direction: column; gap: 10px;
   width: min(360px, calc(100vw - 24px));
   pointer-events: none;
   font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+.stack[data-position$="left"] { right: auto; left: 12px; --offscreen: calc(-100% - 24px); }
+/* 底部两角：新通知贴着屏幕底边，旧的往上推 */
+.stack[data-position^="bottom"] { top: auto; bottom: 12px; flex-direction: column-reverse; }
 .toast {
   /* 配色与图床后台一致：深色石板玻璃、白字、蓝色主操作、红色失败、绿色成功 */
   --bg: rgba(30, 41, 59, .86);
@@ -31,24 +37,40 @@
   --button: rgba(255, 255, 255, .1);
   --button-hover: rgba(255, 255, 255, .18);
   --primary: #3b82f6;
+  --primary-hover: #2563eb;
   --danger: #ef4444;
   --success: #10b981;
+  --shadow: 0 20px 40px -12px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .25);
   position: relative; pointer-events: auto; box-sizing: border-box;
   display: flex; align-items: flex-start; gap: 10px;
   padding: 11px 12px 11px 11px;
   color: var(--text); background: var(--bg);
   border: 1px solid var(--line); border-radius: 16px;
-  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .25);
+  box-shadow: var(--shadow);
   backdrop-filter: blur(16px) saturate(160%);
   -webkit-backdrop-filter: blur(16px) saturate(160%);
-  transform: translateX(calc(100% + 24px)); opacity: 0;
+  transform: translateX(var(--offscreen)); opacity: 0;
   transition: transform .45s cubic-bezier(.2, .9, .25, 1.08), opacity .3s ease;
   touch-action: pan-y; user-select: none; cursor: default;
 }
 .toast.in { transform: translateX(0); opacity: 1; }
 .toast.dragging { transition: none; }
-.toast.out { transform: translateX(calc(100% + 24px)); opacity: 0; transition: transform .3s ease-in, opacity .3s ease-in; }
+.toast.out { transform: translateX(var(--offscreen)); opacity: 0; transition: transform .3s ease-in, opacity .3s ease-in; }
 .toast[data-kind="error"] { border-color: rgba(239, 68, 68, .35); }
+/* 浅色主题：对应图床后台的 :root[data-theme="light"] */
+.stack[data-theme="light"] .toast {
+  --bg: rgba(255, 255, 255, .9);
+  --text: #0f172a;
+  --muted: #526278;
+  --line: rgba(15, 23, 42, .14);
+  --button: rgba(15, 23, 42, .07);
+  --button-hover: rgba(15, 23, 42, .12);
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --success: #047857;
+  --shadow: 0 20px 40px -12px rgba(15, 23, 42, .25), 0 2px 6px rgba(15, 23, 42, .1);
+}
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast.out { transform: none; transition: opacity .2s ease; }
 }
@@ -61,6 +83,7 @@
   font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1; cursor: pointer;
   opacity: 0; transform: scale(.8); transition: opacity .15s, transform .15s;
 }
+.stack[data-position$="left"] .close { left: auto; right: -6px; }
 .toast:hover .close, .close:focus-visible { opacity: 1; transform: scale(1); }
 .icon { position: relative; flex: none; width: 36px; height: 36px; }
 .icon svg { display: block; width: 36px; height: 36px; filter: drop-shadow(0 4px 10px rgba(96, 165, 250, .3)); }
@@ -102,7 +125,7 @@
 }
 .actions button:hover { background: var(--button-hover); }
 .actions button[data-action="copy"] { background: var(--primary); color: #fff; }
-.actions button[data-action="copy"]:hover { background: #2563eb; }
+.actions button[data-action="copy"]:hover { background: var(--primary-hover); }
 .actions button:focus-visible, .close:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .thumb { display: block; width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: var(--button); }
 [hidden] { display: none !important; }
@@ -166,7 +189,8 @@
      * 显示或更新一条通知。id 相同则原地更新（进度 → 成功 / 失败），seq 不大于已应用值的更新直接丢弃。
      * @param {{id: string, kind: 'progress'|'success'|'error', title: string, message?: string,
      *          mono?: boolean, progress?: number, url?: string, copyText?: string,
-     *          thumb?: string, duration?: number, seq?: number}} options
+     *          thumb?: string, duration?: number, seq?: number,
+     *          theme?: 'dark'|'light', position?: 'top-right'|'top-left'|'bottom-left'|'bottom-right'}} options
      */
     function show(options) {
         const last = appliedSeq.get(options.id) ?? -Infinity;
@@ -175,6 +199,10 @@
             appliedSeq.set(options.id, options.seq);
         }
 
+        // 主题与位置作用于整个通知栈；设置在两次上传之间改了，下一条通知起生效
+        stack.dataset.theme = options.theme === 'light' ? 'light' : 'dark';
+        stack.dataset.position = POSITIONS.includes(options.position) ? options.position : POSITIONS[0];
+
         // 挂在 <html> 而不是 <body> 上：body 带 transform / filter 时 fixed 定位会相对 body 失效
         if (!host.isConnected) document.documentElement.append(host);
 
@@ -182,7 +210,7 @@
         if (!entry) {
             entry = create(options.id);
             toasts.set(options.id, entry);
-            // 新通知在最上面，与 macOS 一致
+            // 新通知排在最靠屏幕边的位置：顶部两角在最上面（与 macOS 一致），底部两角靠 column-reverse 排在最下面
             stack.prepend(entry.el);
             while (toasts.size > MAX_TOASTS) dismiss(toasts.keys().next().value);
             // 下一帧再加 in，保证初始位置先被渲染，过渡才会触发
@@ -303,7 +331,7 @@
     }
 
     /**
-     * 向右拖动超过阈值即关闭，否则回弹
+     * 朝通知所在一侧（右侧向右、左侧向左）拖动超过阈值即关闭，否则回弹
      */
     function enableSwipe(entry, id) {
         const { el } = entry;
@@ -321,9 +349,10 @@
         });
         el.addEventListener('pointermove', event => {
             if (event.pointerId !== pointerId) return;
-            dx = Math.max(0, event.clientX - startX);
+            const delta = event.clientX - startX;
+            dx = stack.dataset.position?.endsWith('left') ? Math.min(0, delta) : Math.max(0, delta);
             el.style.transform = `translateX(${dx}px)`;
-            el.style.opacity = String(Math.max(.2, 1 - dx / 300));
+            el.style.opacity = String(Math.max(.2, 1 - Math.abs(dx) / 300));
         });
         const end = event => {
             if (event.pointerId !== pointerId) return;
@@ -331,7 +360,7 @@
             el.classList.remove('dragging');
             el.style.transform = '';
             el.style.opacity = '';
-            if (dx > DISMISS_DISTANCE) dismiss(id);
+            if (Math.abs(dx) > DISMISS_DISTANCE) dismiss(id);
         };
         el.addEventListener('pointerup', end);
         el.addEventListener('pointercancel', end);

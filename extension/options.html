@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PhotoFlare 图床助手 · 设置</title>
 <link rel="stylesheet" href="styles.css">
+<script src="theme.js"></script>
 </head>
 <body class="options">
 <main class="options-card">
@@ -32,8 +33,19 @@
       <select id="format"></select>
     </label>
 
+    <label class="field">
+      <span>主题</span>
+      <select id="theme"></select>
+      <small>弹窗、设置页与页面内通知的配色。</small>
+    </label>
+
+    <label class="field">
+      <span>通知位置</span>
+      <select id="toastPosition"></select>
+    </label>
+
     <label class="check"><input id="autoCopy" type="checkbox"> 上传后自动复制链接</label>
-    <label class="check"><input id="notify" type="checkbox"> 在页面右上角显示通知</label>
+    <label class="check"><input id="notify" type="checkbox"> 上传时在页面上显示通知</label>
 
     <div class="actions">
       <button type="submit" class="primary">保存</button>
