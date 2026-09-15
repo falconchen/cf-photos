@@ -7,7 +7,7 @@
 - 图片、视频、音频都能存。读取接口支持 `Range`，`<video>` / `<audio>` 可以拖拽定位
 - 四条上传路径：multipart 表单、JSON Base64、裸二进制、`PUT /i/...`。大文件走流式，不占 Worker 内存
 - 路径按日期自动生成：`/i/YYYY/MM/DD/<时间序 ID>`，时区可配
-- 管理后台：列表、年 / 月 / 日三级筛选、文件选择 / 拖拽 / 粘贴上传、删除
+- 管理后台：列表、年 / 月 / 日三级筛选、文件选择 / 拖拽 / 粘贴上传、删除与多选批量删除（Shift 连选、Esc 取消）
 - 会被浏览器当网页打开的类型一律拒收，读取响应带 CSP 与 `nosniff`，封掉存储型 XSS
 - `POST /mcp` 暴露一个 `upload_image` 工具，Claude Code、claude.ai、ChatGPT 都能接
 - `extension/` 是配套的 Chrome 扩展：右键网页图片直接存进图床，或在弹窗里批量勾选上传

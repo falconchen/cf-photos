@@ -869,6 +869,113 @@ export class ImageService {
             color: white;
         }
 
+        /* 多选：复选框浮在预览左上角；悬停、已进入多选或本卡已选时完全显示 */
+        .select-toggle {
+            position: absolute;
+            top: 0.6rem;
+            left: 0.6rem;
+            z-index: 2;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            border-radius: 0.45rem;
+            border: 2px solid rgba(255, 255, 255, 0.85);
+            background: rgba(15, 23, 42, 0.55);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+        }
+
+        .select-toggle svg {
+            width: 16px;
+            height: 16px;
+            opacity: 0;
+        }
+
+        .image-card:hover .select-toggle,
+        .select-toggle:focus-visible,
+        .grid.selecting .select-toggle,
+        .image-card.selected .select-toggle {
+            opacity: 1;
+        }
+
+        .image-card.selected .select-toggle {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .image-card.selected .select-toggle svg {
+            opacity: 1;
+        }
+
+        .image-card.selected {
+            outline: 2px solid var(--primary);
+            outline-offset: -2px;
+        }
+
+        /* 触屏没有悬停，复选框常驻 */
+        @media (hover: none) {
+            .select-toggle {
+                opacity: 1;
+            }
+        }
+
+        .selection-bar {
+            position: sticky;
+            top: 0.75rem;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            background: #1e293b;
+            border: 1px solid rgba(59, 130, 246, 0.45);
+            border-radius: 0.75rem;
+            padding: 0.6rem 0.75rem 0.6rem 1rem;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+            font-size: 0.875rem;
+        }
+
+        /* 元素自带 display:flex 会压过 hidden 属性，需要显式恢复 */
+        .selection-bar[hidden] {
+            display: none;
+        }
+
+        .selection-bar .spacer {
+            flex: 1;
+        }
+
+        .selection-bar button {
+            width: auto;
+            padding: 0.4rem 0.9rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            border-radius: 0.5rem;
+            white-space: nowrap;
+        }
+
+        .btn-ghost {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .btn-danger-solid {
+            background: var(--danger);
+            color: white;
+            /* 与 .btn-ghost 同样占 1px 边框，并排时高度才一致 */
+            border: 1px solid var(--danger);
+        }
+
+        .selection-bar button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .btn-primary {
             background: var(--primary);
             color: white;
@@ -1161,6 +1268,18 @@ export class ImageService {
                 padding: 1.25rem 1rem;
             }
 
+            .selection-bar #selection-count {
+                flex-basis: 100%;
+            }
+
+            .selection-bar .spacer {
+                display: none;
+            }
+
+            .selection-bar button {
+                flex: 1;
+            }
+
             header {
                 flex-direction: column;
                 align-items: stretch;
@@ -1322,6 +1441,13 @@ export class ImageService {
                             <option value="asc">最早在前</option>
                         </select>
                     </div>
+                </div>
+                <div id="selection-bar" class="selection-bar" hidden>
+                    <span id="selection-count">已选 0 项</span>
+                    <div class="spacer"></div>
+                    <button type="button" class="btn-ghost" id="select-all-btn" onclick="selectAllLoaded()">全选已加载</button>
+                    <button type="button" class="btn-ghost" id="clear-selection-btn" onclick="clearSelection()">取消</button>
+                    <button type="button" class="btn-danger-solid" id="batch-delete-btn" onclick="deleteSelected()">删除所选</button>
                 </div>
                 <div id="loading">正在加载...</div>
                 <div id="image-grid" class="grid"></div>
@@ -1795,11 +1921,16 @@ export class ImageService {
 
         function renderImages(images, append, prepend = false) {
             const grid = document.getElementById('image-grid');
-            if (!append && !prepend) grid.innerHTML = '';
+            if (!append && !prepend) {
+                grid.innerHTML = '';
+                clearSelection();
+            }
 
             images.forEach(img => {
                 const card = document.createElement('div');
                 card.className = 'image-card';
+                // key 用 dataset 写入，不拼进 HTML，避免文件名里的引号破坏结构
+                card.dataset.key = img.key;
                 
                 // 唯一的 ID 用于在该卡片内操作图片
                 const imageId = 'img-' + Math.random().toString(36).substr(2, 9);
@@ -1812,7 +1943,7 @@ export class ImageService {
                         : \`<div id="\${imageId}" class="real-image"></div>\`;
 
                 card.innerHTML = \`
-                    <div class="image-preview pulse" onclick="window.open('\${img.url}')">
+                    <div class="image-preview pulse">
                         \${preview}
                     </div>
                     <div class="image-info">
@@ -1834,6 +1965,30 @@ export class ImageService {
                     </div>
                 \`;
                 
+                // 多选开关：点它只切换选择，不触发预览
+                const previewEl = card.querySelector('.image-preview');
+                const toggle = document.createElement('button');
+                toggle.type = 'button';
+                toggle.className = 'select-toggle';
+                toggle.title = '选择（按住 Shift 可连选）';
+                toggle.setAttribute('aria-label', '选择');
+                toggle.setAttribute('aria-pressed', 'false');
+                toggle.innerHTML = CHECK_ICON;
+                toggle.addEventListener('click', e => {
+                    e.stopPropagation();
+                    toggleCardSelection(card, e);
+                });
+                previewEl.appendChild(toggle);
+
+                // 已处于多选时，点预览等于点复选框，批量勾选不必瞄准小方块
+                previewEl.addEventListener('click', e => {
+                    if (selectedKeys.size > 0) {
+                        toggleCardSelection(card, e);
+                    } else {
+                        window.open(img.url);
+                    }
+                });
+
                 if (prepend) {
                     grid.insertBefore(card, grid.firstChild);
                 } else {
@@ -1889,9 +2044,7 @@ export class ImageService {
                     showToast('删除成功', 'var(--success)');
                     // 动态移除卡片
                     const card = btn.closest('.image-card');
-                    card.style.opacity = '0';
-                    card.style.transform = 'scale(0.9)';
-                    setTimeout(() => card.remove(), 300);
+                    removeCard(card);
                 } else {
                     alert('删除失败: ' + data.message);
                     btn.textContent = originalText;
@@ -1903,6 +2056,183 @@ export class ImageService {
                 btn.disabled = false;
             }
         }
+
+        const CHECK_ICON = '<svg fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
+
+        // 批量删除时同时发出的请求数。每次删除在 Worker 端是 PROPFIND + DELETE 两次
+        // WebDAV 往返，并发太高容易被后端限流，太低则几十个文件要等很久。
+        const DELETE_CONCURRENCY = 4;
+
+        // 选择状态以存储 key 为准，卡片上的样式只是它的投影
+        const selectedKeys = new Set();
+        let lastToggledKey = null;
+        let batchDeleting = false;
+
+        function gridCards() {
+            return [...document.querySelectorAll('#image-grid .image-card')];
+        }
+
+        function findCard(key) {
+            // 不用属性选择器：key 里可能有引号等需要转义的字符
+            return gridCards().find(card => card.dataset.key === key) || null;
+        }
+
+        function setCardSelected(card, selected) {
+            if (selected) {
+                selectedKeys.add(card.dataset.key);
+            } else {
+                selectedKeys.delete(card.dataset.key);
+            }
+            card.classList.toggle('selected', selected);
+            card.querySelector('.select-toggle')?.setAttribute('aria-pressed', String(selected));
+        }
+
+        /**
+         * 切换一张卡片的选择状态；按住 Shift 时把上一次操作的卡片到这张之间整段设为同一状态。
+         * 上一次的位置按 key 记录并在点击时重新定位，中途删掉卡片也不会连错范围。
+         */
+        function toggleCardSelection(card, event) {
+            if (batchDeleting) return;
+            const target = !selectedKeys.has(card.dataset.key);
+            const cards = gridCards();
+            const anchor = lastToggledKey === null ? -1 : cards.findIndex(c => c.dataset.key === lastToggledKey);
+
+            if (event && event.shiftKey && anchor >= 0) {
+                const index = cards.indexOf(card);
+                const from = Math.min(anchor, index);
+                const to = Math.max(anchor, index);
+                for (let i = from; i <= to; i++) setCardSelected(cards[i], target);
+            } else {
+                setCardSelected(card, target);
+            }
+
+            lastToggledKey = card.dataset.key;
+            updateSelectionBar();
+        }
+
+        function selectAllLoaded() {
+            if (batchDeleting) return;
+            gridCards().forEach(card => setCardSelected(card, true));
+            updateSelectionBar();
+        }
+
+        function clearSelection() {
+            if (batchDeleting) return;
+            selectedKeys.clear();
+            lastToggledKey = null;
+            gridCards().forEach(card => setCardSelected(card, false));
+            updateSelectionBar();
+        }
+
+        function updateSelectionBar() {
+            const count = selectedKeys.size;
+            document.getElementById('selection-bar').hidden = count === 0 && !batchDeleting;
+            document.getElementById('image-grid').classList.toggle('selecting', count > 0);
+            if (batchDeleting) return;
+            document.getElementById('selection-count').textContent = '已选 ' + count + ' 项';
+            document.getElementById('batch-delete-btn').textContent = '删除所选 (' + count + ')';
+        }
+
+        function setSelectionBarBusy(busy) {
+            ['select-all-btn', 'clear-selection-btn', 'batch-delete-btn'].forEach(id => {
+                document.getElementById(id).disabled = busy;
+            });
+        }
+
+        // 淡出后移除卡片，并把它从选择里摘掉
+        function removeCard(card) {
+            selectedKeys.delete(card.dataset.key);
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.9)';
+            setTimeout(() => card.remove(), 300);
+            updateSelectionBar();
+        }
+
+        /**
+         * 批量删除所选文件。
+         * 逐个调用现有的 DELETE /admin/delete/{key}，而不是新增批量接口：每个文件在 Worker 端
+         * 要两次 WebDAV 子请求，一次调用删几十个很容易撞上单次调用的子请求上限；拆成独立请求后
+         * 既没有这个问题，也能逐个报告成败。失败的文件保持选中，便于重试。
+         */
+        async function deleteSelected() {
+            const keys = [...selectedKeys];
+            if (keys.length === 0 || batchDeleting) return;
+            if (!confirm('确定要永久删除选中的 ' + keys.length + ' 个文件吗？此操作不可撤销。')) return;
+
+            batchDeleting = true;
+            setSelectionBarBusy(true);
+            const countEl = document.getElementById('selection-count');
+            countEl.textContent = '正在删除 0 / ' + keys.length;
+
+            const token = localStorage.getItem('cf_photo_token');
+            const queue = keys.slice();
+            const failures = [];
+            let done = 0;
+            let unauthorized = false;
+
+            const worker = async () => {
+                while (queue.length > 0 && !unauthorized) {
+                    const key = queue.shift();
+                    try {
+                        const res = await fetch('/admin/delete/' + key.split('/').map(encodeURIComponent).join('/'), {
+                            method: 'DELETE',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        if (res.status === 401) {
+                            unauthorized = true;
+                            return;
+                        }
+                        let data = null;
+                        try { data = await res.json(); } catch { /* 非 JSON 响应 */ }
+                        if (!data || data.result !== 'success') {
+                            throw new Error((data && data.message) || ('HTTP ' + res.status));
+                        }
+                        const card = findCard(key);
+                        if (card) {
+                            removeCard(card);
+                        } else {
+                            selectedKeys.delete(key);
+                        }
+                    } catch (e) {
+                        failures.push({ key, message: e.message });
+                    } finally {
+                        done++;
+                        countEl.textContent = '正在删除 ' + done + ' / ' + keys.length;
+                    }
+                }
+            };
+
+            await Promise.all(Array.from({ length: Math.min(DELETE_CONCURRENCY, keys.length) }, worker));
+
+            if (unauthorized) {
+                localStorage.removeItem('cf_photo_token');
+                location.reload();
+                return;
+            }
+
+            batchDeleting = false;
+            setSelectionBarBusy(false);
+            updateSelectionBar();
+
+            const succeeded = keys.length - failures.length;
+            if (failures.length === 0) {
+                showToast('已删除 ' + succeeded + ' 个文件', 'var(--success)');
+            } else {
+                const detail = failures.slice(0, 5).map(f => f.key + '：' + f.message).join('\\n');
+                const more = failures.length > 5 ? '\\n…另有 ' + (failures.length - 5) + ' 个' : '';
+                alert('成功删除 ' + succeeded + ' 个，失败 ' + failures.length + ' 个（仍保持选中，可重试）：\\n' + detail + more);
+            }
+
+            // 已加载的卡片删光了就重新拉取，下一页的内容或空态才能正常显示
+            setTimeout(() => {
+                if (gridCards().length === 0) resetAndLoad();
+            }, 350);
+        }
+
+        document.addEventListener('keydown', e => {
+            const modalOpen = document.getElementById('upload-modal').style.display === 'flex';
+            if (e.key === 'Escape' && selectedKeys.size > 0 && !modalOpen) clearSelection();
+        });
 
         function formatSize(bytes) {
             if (bytes === 0) return '0 B';
