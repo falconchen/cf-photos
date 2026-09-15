@@ -617,7 +617,11 @@ export class ImageService {
             } catch (_) {
                 // localStorage 不可用时保留原有深色主题
             }
-            document.documentElement.dataset.theme = savedTheme === 'light' ? 'light' : 'dark';
+            const hasSavedTheme = savedTheme === 'light' || savedTheme === 'dark';
+            const systemTheme = window.matchMedia?.('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+            document.documentElement.dataset.theme = hasSavedTheme ? savedTheme : systemTheme;
         })();
     </script>
     <style>
@@ -1436,13 +1440,17 @@ export class ImageService {
             }
 
             header {
-                flex-direction: column;
-                align-items: stretch;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: center;
                 gap: 1rem;
                 margin-bottom: 1.75rem;
             }
 
             h1 {
+                grid-column: 1;
+                grid-row: 1;
+                min-width: 0;
                 font-size: 1.5rem;
                 gap: 0.5rem;
             }
@@ -1454,7 +1462,9 @@ export class ImageService {
 
             /* showDashboard() 会把 display 改成 flex，这里只调布局 */
             #header-actions {
-                flex: 1;
+                grid-column: 1 / -1;
+                grid-row: 2;
+                width: 100%;
             }
 
             #header-actions > button {
@@ -1463,7 +1473,12 @@ export class ImageService {
             }
 
             .header-controls {
-                width: 100%;
+                display: contents;
+            }
+
+            .theme-toggle {
+                grid-column: 2;
+                grid-row: 1;
             }
 
             #login-screen {
