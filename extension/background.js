@@ -3,6 +3,7 @@
  * 取图放在这里而不是页面里，是因为扩展持有 host 权限，跨域 fetch 不受 CORS 限制。
  */
 
+import './lib/browser-compat.js';
 import {
     DEFAULT_SETTINGS,
     deriveFilename,
@@ -34,20 +35,19 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
 /**
  * 创建右键菜单：图片上直接上传，指向图片文件的链接上传链接目标
  */
-function setupMenus() {
-    chrome.contextMenus.removeAll(() => {
-        chrome.contextMenus.create({
-            id: MENU_IMAGE,
-            title: '上传到图床',
-            contexts: ['image']
-        });
-        chrome.contextMenus.create({
-            id: MENU_LINK,
-            title: '上传链接指向的图片',
-            contexts: ['link'],
-            targetUrlPatterns: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp']
-                .flatMap(ext => [`*://*/*.${ext}`, `*://*/*.${ext}?*`])
-        });
+async function setupMenus() {
+    await chrome.contextMenus.removeAll();
+    chrome.contextMenus.create({
+        id: MENU_IMAGE,
+        title: '上传到图床',
+        contexts: ['image']
+    });
+    chrome.contextMenus.create({
+        id: MENU_LINK,
+        title: '上传链接指向的图片',
+        contexts: ['link'],
+        targetUrlPatterns: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp']
+            .flatMap(ext => [`*://*/*.${ext}`, `*://*/*.${ext}?*`])
     });
 }
 
@@ -109,7 +109,7 @@ async function uploadOne(item) {
         const url = await uploadImage(item, settings);
         const link = formatLink(url, settings.format, item.alt);
         let copied = false;
-        if (settings.autoCopy) copied = await copyText(link).then(() => true, () => false);
+        if (settings.autoCopy) copied = await copyText(link, item.tabId).then(() => true, () => false);
         if (settings.notify) {
             showToast(item.tabId, settings, {
                 ...toast,
@@ -187,7 +187,7 @@ async function runBatch(items) {
     const failed = items.length - links.length;
     let copied = false;
     if (links.length && settings.autoCopy) {
-        copied = await copyText(links.join('\n')).then(() => true, () => false);
+        copied = await copyText(links.join('\n'), tabId).then(() => true, () => false);
     }
     await chrome.storage.session.set({ batch: { running: false, jobs, copied } });
 
@@ -417,23 +417,54 @@ async function resolveMime(blob, srcUrl) {
 /**
  * 通过 offscreen 文档写剪贴板。service worker 没有 DOM，拿不到 clipboard API。
  * @param {string} text
+ * @param {number|undefined} tabId
  */
-async function copyText(text) {
-    const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
-    if (!existing.length) {
-        try {
-            await chrome.offscreen.createDocument({
-                url: 'offscreen.html',
-                reasons: ['CLIPBOARD'],
-                justification: '把上传后的图片链接写入剪贴板'
-            });
-        } catch (error) {
-            // 并发创建时第二次会报「只允许一个 offscreen 文档」，可以忽略
-            if (!/single offscreen/i.test(error.message)) throw error;
+async function copyText(text, tabId) {
+    // Chrome 的 offscreen 文档不在 Firefox 实现；Chrome 继续使用原来的无焦点复制方案。
+    if (chrome.offscreen && chrome.runtime.getContexts) {
+        const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+        if (!existing.length) {
+            try {
+                await chrome.offscreen.createDocument({
+                    url: 'offscreen.html',
+                    reasons: ['CLIPBOARD'],
+                    justification: '把上传后的图片链接写入剪贴板'
+                });
+            } catch (error) {
+                // 并发创建时第二次会报「只允许一个 offscreen 文档」，可以忽略
+                if (!/single offscreen/i.test(error.message)) throw error;
+            }
         }
+        const response = await chrome.runtime.sendMessage({ type: 'offscreen-copy', text });
+        if (!response?.ok) throw new Error('写入剪贴板失败');
+        return;
     }
-    const response = await chrome.runtime.sendMessage({ type: 'offscreen-copy', text });
-    if (!response?.ok) throw new Error('写入剪贴板失败');
+
+    // Firefox 没有 offscreen API，退回到当前页面的剪贴板上下文；失败时由通知提示用户手动复制。
+    if (tabId === undefined) throw new Error('没有可用的标签页');
+    const [injection] = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        args: [text],
+        func: async value => {
+            try {
+                if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(value);
+                    return true;
+                }
+                const buffer = document.createElement('textarea');
+                buffer.value = value;
+                buffer.style.cssText = 'position:fixed;left:-9999px;top:0';
+                document.body.appendChild(buffer);
+                buffer.select();
+                const ok = document.execCommand('copy');
+                buffer.remove();
+                return ok;
+            } catch {
+                return false;
+            }
+        }
+    });
+    if (injection?.result !== true) throw new Error('写入剪贴板失败');
 }
 
 /**

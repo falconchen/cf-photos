@@ -115,3 +115,14 @@ test('manifest 引用的文件都存在', () => {
         assert.doesNotThrow(() => readFileSync(new URL(file, root)), `缺少 ${file}`);
     }
 });
+
+test('Firefox Manifest V3 使用 background scripts 并声明 Gecko ID', () => {
+    const root = new URL('../extension/', import.meta.url);
+    const manifest = JSON.parse(readFileSync(new URL('manifest.firefox.json', root), 'utf8'));
+    assert.equal(manifest.manifest_version, 3);
+    assert.equal(manifest.background.type, 'module');
+    assert.deepEqual(manifest.background.scripts, ['background.js']);
+    assert.equal(manifest.browser_specific_settings.gecko.id, 'photoflare@falconchen.dev');
+    assert.equal(manifest.permissions.includes('offscreen'), false);
+    assert.equal(manifest.permissions.includes('declarativeNetRequest'), true);
+});

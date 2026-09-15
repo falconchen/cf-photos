@@ -205,6 +205,8 @@ curl -H "Authorization: Bearer your_secret_token" \
 
 **安装**：打开 `chrome://extensions`，右上角开启「开发者模式」，点「加载已解压的扩展程序」选中 `extension/` 目录。首次安装会自动打开设置页，填图床地址和 `AUTH_TOKEN`，点「测试连接」确认无误后保存。
 
+Firefox 使用同一套代码和界面，发布包使用 `manifest.firefox.json`（Firefox 的 `background.scripts` 与 Chrome 的 service worker 不同）。在 `about:debugging#/runtime/this-firefox` 点「临时载入附加组件」，选择 Firefox 发布包里的 `manifest.json`；正式安装可从 GitHub Release 下载 `photoflare-firefox-extension-*.zip` 后提交到 Firefox Add-ons。Firefox 没有 Chrome 的 `offscreen` API，自动复制会优先尝试当前页面剪贴板，失败时通知中仍可手动复制。
+
 **用法**：
 
 - 在图片上右键 →「上传到图床」。指向图片文件（`.png` / `.jpg` 等）的链接上右键 →「上传链接指向的图片」
