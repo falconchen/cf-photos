@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CF-Photos 图床助手</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="popup">
+<header class="bar">
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="page" aria-selected="true">本页图片</button>
+    <button role="tab" data-tab="history" aria-selected="false">最近上传</button>
+  </nav>
+  <button id="open-options" class="ghost icon" title="设置" aria-label="设置">⚙</button>
+</header>
+
+<div id="setup" class="notice" hidden>
+  还没有配置图床地址。<button id="setup-btn" class="link">去设置</button>
+</div>
+
+<section id="tab-page" role="tabpanel">
+  <div class="toolbar">
+    <label class="check"><input id="select-all" type="checkbox"> 全选</label>
+    <label class="check"><input id="hide-small" type="checkbox" checked> 隐藏小于 100px</label>
+    <span id="count" class="muted"></span>
+  </div>
+  <div id="grid" class="grid"></div>
+  <p id="empty" class="empty" hidden></p>
+  <footer class="footer">
+    <span id="batch-status" class="muted" role="status"></span>
+    <button id="copy-results" hidden>复制链接</button>
+    <button id="upload" class="primary" disabled>上传所选</button>
+  </footer>
+</section>
+
+<section id="tab-history" role="tabpanel" hidden>
+  <ul id="history" class="history"></ul>
+  <p id="history-empty" class="empty" hidden>还没有上传记录</p>
+</section>
+
+<script type="module" src="popup.js"></script>
+</body>
+</html>
