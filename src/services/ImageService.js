@@ -810,6 +810,20 @@ export class ImageService {
             overflow: hidden;
         }
 
+        /* 路径与多选复选框同一行：路径占满剩余宽度并截断，复选框靠最右 */
+        .image-path-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .image-path-row .image-path {
+            flex: 1;
+            min-width: 0;
+            margin-bottom: 0;
+        }
+
         .image-meta {
             display: flex;
             justify-content: space-between;
@@ -869,18 +883,16 @@ export class ImageService {
             color: white;
         }
 
-        /* 多选：复选框浮在预览左上角；悬停、已进入多选或本卡已选时完全显示 */
+        /* 多选：复选框在路径行最右侧，不遮挡预览；悬停、已进入多选或本卡已选时完全显示。
+           用 opacity 隐藏而不是 display:none，位置始终占住，显隐时路径不会跳动 */
         .select-toggle {
-            position: absolute;
-            top: 0.6rem;
-            left: 0.6rem;
-            z-index: 2;
-            width: 26px;
-            height: 26px;
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
             padding: 0;
-            border-radius: 0.45rem;
-            border: 2px solid rgba(255, 255, 255, 0.85);
-            background: rgba(15, 23, 42, 0.55);
+            border-radius: 0.35rem;
+            border: 1.5px solid rgba(148, 163, 184, 0.7);
+            background: transparent;
             color: white;
             display: flex;
             align-items: center;
@@ -890,8 +902,8 @@ export class ImageService {
         }
 
         .select-toggle svg {
-            width: 16px;
-            height: 16px;
+            width: 13px;
+            height: 13px;
             opacity: 0;
         }
 
@@ -1947,7 +1959,9 @@ export class ImageService {
                         \${preview}
                     </div>
                     <div class="image-info">
-                        <div class="image-path" title="\${img.key}">\${img.key}</div>
+                        <div class="image-path-row">
+                            <div class="image-path" title="\${img.key}">\${img.key}</div>
+                        </div>
                         <div class="image-meta">
                             <span>\${formatSize(img.size)}</span>
                             <span>\${new Date(img.uploaded).toLocaleDateString()}</span>
@@ -1965,7 +1979,7 @@ export class ImageService {
                     </div>
                 \`;
                 
-                // 多选开关：点它只切换选择，不触发预览
+                // 多选开关：放在路径行最右侧
                 const previewEl = card.querySelector('.image-preview');
                 const toggle = document.createElement('button');
                 toggle.type = 'button';
@@ -1974,11 +1988,8 @@ export class ImageService {
                 toggle.setAttribute('aria-label', '选择');
                 toggle.setAttribute('aria-pressed', 'false');
                 toggle.innerHTML = CHECK_ICON;
-                toggle.addEventListener('click', e => {
-                    e.stopPropagation();
-                    toggleCardSelection(card, e);
-                });
-                previewEl.appendChild(toggle);
+                toggle.addEventListener('click', e => toggleCardSelection(card, e));
+                card.querySelector('.image-path-row').appendChild(toggle);
 
                 // 已处于多选时，点预览等于点复选框，批量勾选不必瞄准小方块
                 previewEl.addEventListener('click', e => {
