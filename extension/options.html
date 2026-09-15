@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CF-Photos 图床助手 · 设置</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="options">
+<main class="options-card">
+  <h1><img src="icons/icon32.png" alt="" width="24" height="24"> 图床设置</h1>
+
+  <form id="form" autocomplete="off">
+    <label class="field">
+      <span>图床地址</span>
+      <input id="endpoint" type="url" placeholder="https://photos.example.com" required>
+      <small>Worker 的访问地址，只取协议与域名。</small>
+    </label>
+
+    <label class="field">
+      <span>AUTH_TOKEN</span>
+      <div class="inline">
+        <input id="token" type="password" placeholder="与 Worker 的 AUTH_TOKEN 一致">
+        <button type="button" id="toggle-token" class="ghost">显示</button>
+      </div>
+      <small>只存在本机（chrome.storage.local），不会随账号同步。</small>
+    </label>
+
+    <label class="field">
+      <span>复制格式</span>
+      <select id="format"></select>
+    </label>
+
+    <label class="check"><input id="autoCopy" type="checkbox"> 上传后自动复制链接</label>
+    <label class="check"><input id="notify" type="checkbox"> 显示系统通知</label>
+
+    <div class="actions">
+      <button type="submit" class="primary">保存</button>
+      <button type="button" id="test">测试连接</button>
+      <span id="status" class="status" role="status"></span>
+    </div>
+  </form>
+</main>
+<script type="module" src="options.js"></script>
+</body>
+</html>

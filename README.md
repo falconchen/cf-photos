@@ -10,6 +10,7 @@
 - 管理后台：列表、年 / 月 / 日三级筛选、文件选择 / 拖拽 / 粘贴上传、删除
 - 会被浏览器当网页打开的类型一律拒收，读取响应带 CSP 与 `nosniff`，封掉存储型 XSS
 - `POST /mcp` 暴露一个 `upload_image` 工具，Claude Code、claude.ai、ChatGPT 都能接
+- `extension/` 是配套的 Chrome 扩展：右键网页图片直接存进图床，或在弹窗里批量勾选上传
 - `scripts/webdav-backup.sh` 每天把 `i/` 增量备份到本地
 
 ## 使用方法
@@ -197,6 +198,27 @@ curl -H "Authorization: Bearer your_secret_token" \
 6. **域名**：`https://your-worker.workers.dev`（用于拼接完整路径）
 
 > 鉴权说明：`Authorization` 头优先，且在解析请求体**之前**校验——带了头但 token 不对会直接返回 401，不会先把文件读进内存。只有完全不带 `Authorization` 头时，才回落到 `token` 表单 / JSON 字段（供只能这样传参的客户端使用）。所以**不要同时**带一个错误的头和一个正确的 `token` 字段，那会被拒绝。
+
+## Chrome 扩展
+
+`extension/` 目录是一个 Manifest V3 扩展，把网页上的图片存进图床，不需要改 Worker。
+
+**安装**：打开 `chrome://extensions`，右上角开启「开发者模式」，点「加载已解压的扩展程序」选中 `extension/` 目录。首次安装会自动打开设置页，填图床地址和 `AUTH_TOKEN`，点「测试连接」确认无误后保存。
+
+**用法**：
+
+- 在图片上右键 →「上传到图床」。指向图片文件（`.png` / `.jpg` 等）的链接上右键 →「上传链接指向的图片」
+- 点工具栏图标打开弹窗，会列出当前页面的全部图片（`<img>` 与 `srcset` 最大候选、`<picture>`、懒加载的 `data-src`、CSS 背景图、`og:image`，含 iframe 内的），勾选后批量上传。上传在后台进行，关掉弹窗不会中断
+- 上传成功后按设置复制链接（URL / Markdown / HTML / BBCode），批量上传时每行一条；弹窗的「最近上传」保留最近 50 条
+
+**实现要点**：
+
+- 取图在后台 service worker 里做。扩展持有 `<all_urls>` 权限，跨域 fetch 不受 CORS 限制，并会带上页面 Cookie
+- 按 Referer 防盗链的站点：取图期间加一条临时的 `declarativeNetRequest` 会话规则，把 Referer 设成图片所在页面，只作用于扩展自己发出的请求（`tabIds: [-1]`），取完即删
+- 后台取不到时退回到页面里再取一次；`blob:` 地址只在创建它的页面有效，直接进页面取
+- 类型按文件头嗅探，不信任源站的 `Content-Type`（CDN 常回 `application/octet-stream`），非图片不上传。文件名后缀与真实类型不符时（如 `.php` 出图）按真实类型改后缀，因为后端 WebDAV 是按后缀回 `Content-Type` 的
+- 上传走裸二进制 `POST /upload` + `X-Upload-Filename`，流式路径，没有 20 MB 的缓冲上限
+- Token 存在 `chrome.storage.local`，不随 Chrome 账号同步
 
 ## MCP 服务端
 
