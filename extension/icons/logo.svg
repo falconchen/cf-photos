@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 与图床后台 .logo-icon 一致：32px 圆角 12、蓝紫渐变、内边距 6 -->
+  <defs>
+    <linearGradient id="pf-g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="12" fill="url(#pf-g)"/>
+  <g transform="translate(6 6) scale(0.8333)">
+    <circle cx="10.5" cy="13.5" r="7" fill="none" stroke="#fff" stroke-width="1.8"/>
+    <circle cx="10.5" cy="13.5" r="2.9" fill="none" stroke="#fff" stroke-width="1.8"/>
+    <circle cx="13.9" cy="10.1" r="1" fill="#fff"/>
+    <path d="M19 1.5Q19.9 4.6 23 5.5Q19.9 6.4 19 9.5Q18.1 6.4 15 5.5Q18.1 4.6 19 1.5Z" fill="#fff"/>
+  </g>
+</svg>

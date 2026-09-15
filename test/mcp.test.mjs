@@ -354,3 +354,16 @@ test('未配置 AUTH_TOKEN 时 /mcp 返回 503 而不是放行', async () => {
     );
     assert.equal(dashboard.status, 200);
 });
+
+test('管理后台提供可持久化的浅色主题切换', async () => {
+    const response = await worker.fetch(
+        new Request('https://photos.example.com/'), env, {}
+    );
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /:root\[data-theme="light"\]/);
+    assert.match(html, /id="theme-toggle"/);
+    assert.match(html, /localStorage\.getItem\('cf_photo_theme'\)/);
+    assert.match(html, /localStorage\.setItem\('cf_photo_theme', nextTheme\)/);
+});

@@ -49,7 +49,7 @@ $('test').addEventListener('click', async () => {
         if (res.status === 401) return showStatus('连上了，但 Token 不对', 'error');
         if (!res.ok) return showStatus(`连上了，但返回 HTTP ${res.status}`, 'error');
         const data = await res.json().catch(() => null);
-        if (data?.result !== 'success') return showStatus('响应不像 CF-Photos，请检查地址', 'error');
+        if (data?.result !== 'success') return showStatus('响应不像 PhotoFlare 图床，请检查地址', 'error');
         showStatus('连接正常，Token 有效', 'ok');
     } catch (error) {
         showStatus(`连接失败：${error.message}`, 'error');

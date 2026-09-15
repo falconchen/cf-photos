@@ -516,7 +516,7 @@ function withTimeout(promise, ms = 10000) {
 async function flashBadge(tabId, isError) {
     const scope = tabId === undefined ? {} : { tabId };
     try {
-        await chrome.action.setBadgeBackgroundColor({ ...scope, color: isError ? '#ff453a' : '#28c840' });
+        await chrome.action.setBadgeBackgroundColor({ ...scope, color: isError ? '#ef4444' : '#10b981' });
         await chrome.action.setBadgeText({ ...scope, text: isError ? '!' : '✓' });
         setTimeout(() => chrome.action.setBadgeText({ ...scope, text: '' }).catch(() => {}), 4000);
     } catch {
