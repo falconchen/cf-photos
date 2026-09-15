@@ -1,6 +1,6 @@
 /**
  * 页面内通知：由后台通过 chrome.scripting.executeScript 注入到页面顶层 frame，
- * 仿 macOS 通知横幅，从右上角侧滑进入。
+ * 仿 macOS 通知横幅，从所在一侧滑入；位置（四角）与配色（深色 / 浅色）由每次 show() 传入，与图床后台一致。
  *
  * 运行在扩展的隔离世界里，window 上的挂载只有本扩展可见，页面脚本碰不到。
  * 样式放在 closed Shadow DOM 里，并用 adoptedStyleSheets 注入——构造样式表属于
@@ -11,48 +11,65 @@
 
     const MAX_TOASTS = 4;
     const DISMISS_DISTANCE = 80;
+    const POSITIONS = ['top-right', 'top-left', 'bottom-left', 'bottom-right'];
 
     const css = `
 :host { all: initial; }
 .stack {
   position: fixed; top: 12px; right: 12px; z-index: 2147483647;
+  /* 滑入滑出的起点：右侧从右边进，左侧从左边进 */
+  --offscreen: calc(100% + 24px);
   display: flex; flex-direction: column; gap: 10px;
   width: min(360px, calc(100vw - 24px));
   pointer-events: none;
   font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+.stack[data-position$="left"] { right: auto; left: 12px; --offscreen: calc(-100% - 24px); }
+/* 底部两角：新通知贴着屏幕底边，旧的往上推 */
+.stack[data-position^="bottom"] { top: auto; bottom: 12px; flex-direction: column-reverse; }
 .toast {
-  --bg: rgba(246, 246, 248, .78);
-  --text: #1d1d1f;
-  --muted: rgba(60, 60, 67, .62);
-  --line: rgba(0, 0, 0, .08);
-  --button: rgba(0, 0, 0, .06);
-  --button-hover: rgba(0, 0, 0, .11);
+  /* 配色与图床后台一致：深色石板玻璃、白字、蓝色主操作、红色失败、绿色成功 */
+  --bg: rgba(30, 41, 59, .86);
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --line: rgba(255, 255, 255, .1);
+  --button: rgba(255, 255, 255, .1);
+  --button-hover: rgba(255, 255, 255, .18);
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --danger: #ef4444;
+  --success: #10b981;
+  --shadow: 0 20px 40px -12px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .25);
   position: relative; pointer-events: auto; box-sizing: border-box;
   display: flex; align-items: flex-start; gap: 10px;
   padding: 11px 12px 11px 11px;
   color: var(--text); background: var(--bg);
-  border: .5px solid var(--line); border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .16), 0 1px 3px rgba(0, 0, 0, .08);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  transform: translateX(calc(100% + 24px)); opacity: 0;
+  border: 1px solid var(--line); border-radius: 16px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  transform: translateX(var(--offscreen)); opacity: 0;
   transition: transform .45s cubic-bezier(.2, .9, .25, 1.08), opacity .3s ease;
   touch-action: pan-y; user-select: none; cursor: default;
 }
 .toast.in { transform: translateX(0); opacity: 1; }
 .toast.dragging { transition: none; }
-.toast.out { transform: translateX(calc(100% + 24px)); opacity: 0; transition: transform .3s ease-in, opacity .3s ease-in; }
-@media (prefers-color-scheme: dark) {
-  .toast {
-    --bg: rgba(40, 40, 44, .74);
-    --text: #f5f5f7;
-    --muted: rgba(235, 235, 245, .6);
-    --line: rgba(255, 255, 255, .12);
-    --button: rgba(255, 255, 255, .1);
-    --button-hover: rgba(255, 255, 255, .18);
-  }
+.toast.out { transform: translateX(var(--offscreen)); opacity: 0; transition: transform .3s ease-in, opacity .3s ease-in; }
+.toast[data-kind="error"] { border-color: rgba(239, 68, 68, .35); }
+/* 浅色主题：对应图床后台的 :root[data-theme="light"] */
+.stack[data-theme="light"] .toast {
+  --bg: rgba(255, 255, 255, .9);
+  --text: #0f172a;
+  --muted: #526278;
+  --line: rgba(15, 23, 42, .14);
+  --button: rgba(15, 23, 42, .07);
+  --button-hover: rgba(15, 23, 42, .12);
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --danger: #dc2626;
+  --success: #047857;
+  --shadow: 0 20px 40px -12px rgba(15, 23, 42, .25), 0 2px 6px rgba(15, 23, 42, .1);
 }
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast.out { transform: none; transition: opacity .2s ease; }
@@ -66,25 +83,29 @@
   font-family: inherit; font-size: 11px; font-weight: 600; line-height: 1; cursor: pointer;
   opacity: 0; transform: scale(.8); transition: opacity .15s, transform .15s;
 }
+.stack[data-position$="left"] .close { left: auto; right: -6px; }
 .toast:hover .close, .close:focus-visible { opacity: 1; transform: scale(1); }
 .icon { position: relative; flex: none; width: 36px; height: 36px; }
-.icon svg { display: block; width: 36px; height: 36px; }
+.icon svg { display: block; width: 36px; height: 36px; filter: drop-shadow(0 4px 10px rgba(96, 165, 250, .3)); }
 .badge {
   position: absolute; right: -3px; bottom: -3px; width: 16px; height: 16px;
   display: grid; place-items: center; border-radius: 50%;
   box-shadow: 0 0 0 2px var(--bg);
   color: #fff; font-family: inherit; font-size: 10px; font-weight: 700; line-height: 1;
 }
-.toast[data-kind="success"] .badge { background-color: #28c840; }
-.toast[data-kind="error"] .badge { background-color: #ff453a; }
+.toast[data-kind="success"] .badge { background-color: var(--success); }
+.toast[data-kind="error"] .badge { background-color: var(--danger); }
 .toast[data-kind="progress"] .badge {
-  background: var(--bg); box-shadow: none; border: 2px solid rgba(127, 127, 127, .35); border-top-color: #f38020;
+  background: var(--bg); box-shadow: none; border: 2px solid rgba(127, 127, 127, .35); border-top-color: var(--primary);
   width: 12px; height: 12px; animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .body { flex: 1; min-width: 0; }
 .head { line-height: 16px; margin-bottom: 1px; }
-.app { font-size: 11px; font-weight: 500; letter-spacing: .02em; color: var(--muted); text-transform: uppercase; }
+.app {
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  background: linear-gradient(to right, #60a5fa, #a855f7); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 .side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .time { font-size: 11px; line-height: 16px; color: var(--muted); white-space: nowrap; }
 .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -95,7 +116,7 @@
 }
 .message.mono { font: 12px/1.35 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .bar { height: 3px; margin-top: 7px; border-radius: 2px; background: var(--button); overflow: hidden; }
-.bar i { display: block; height: 100%; width: 0; background: #f38020; border-radius: inherit; transition: width .3s ease; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(to right, #60a5fa, var(--primary)); border-radius: inherit; transition: width .3s ease; }
 .actions { display: flex; gap: 6px; margin-top: 8px; }
 .actions button {
   flex: 1; padding: 4px 8px; border: none; border-radius: 7px;
@@ -103,7 +124,9 @@
   font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.4; cursor: pointer;
 }
 .actions button:hover { background: var(--button-hover); }
-.actions button:focus-visible, .close:focus-visible { outline: 2px solid #f38020; outline-offset: 1px; }
+.actions button[data-action="copy"] { background: var(--primary); color: #fff; }
+.actions button[data-action="copy"]:hover { background: var(--primary-hover); }
+.actions button:focus-visible, .close:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .thumb { display: block; width: 40px; height: 40px; border-radius: 8px; object-fit: cover; background: var(--button); }
 [hidden] { display: none !important; }
 `;
@@ -125,20 +148,24 @@
     }
 
     /**
-     * 扩展图标：橙色圆角方块 + 上传箭头，与 icons/*.png 一致
+     * PhotoFlare logo：蓝紫渐变圆角方块 + 镜头与星芒，与图床后台、icons/logo.svg 一致
      */
     function appIcon() {
         const s = (tag, attrs, children) => h(tag, attrs, children, SVG_NS);
-        return s('svg', { viewBox: '0 0 36 36', 'aria-hidden': 'true' }, [
+        return s('svg', { viewBox: '0 0 32 32', 'aria-hidden': 'true' }, [
             s('defs', {}, [
-                s('linearGradient', { id: 'cfp-g', x1: '0', y1: '0', x2: '0', y2: '1' }, [
-                    s('stop', { offset: '0', 'stop-color': '#f89a3c' }),
-                    s('stop', { offset: '1', 'stop-color': '#ee7411' })
+                s('linearGradient', { id: 'pf-toast-g', x1: '0', y1: '0', x2: '1', y2: '1' }, [
+                    s('stop', { offset: '0', 'stop-color': '#60a5fa' }),
+                    s('stop', { offset: '1', 'stop-color': '#a855f7' })
                 ])
             ]),
-            s('rect', { x: '1', y: '1', width: '34', height: '34', rx: '8.5', fill: 'url(#cfp-g)' }),
-            s('path', { d: 'M18 8.5 26 17.5h-5v6h-6v-6h-5z', fill: '#fff' }),
-            s('rect', { x: '10', y: '26', width: '16', height: '2.6', rx: '1.3', fill: '#fff' })
+            s('rect', { width: '32', height: '32', rx: '12', fill: 'url(#pf-toast-g)' }),
+            s('g', { transform: 'translate(6 6) scale(0.8333)' }, [
+                s('circle', { cx: '10.5', cy: '13.5', r: '7', fill: 'none', stroke: '#fff', 'stroke-width': '1.8' }),
+                s('circle', { cx: '10.5', cy: '13.5', r: '2.9', fill: 'none', stroke: '#fff', 'stroke-width': '1.8' }),
+                s('circle', { cx: '13.9', cy: '10.1', r: '1', fill: '#fff' }),
+                s('path', { d: 'M19 1.5Q19.9 4.6 23 5.5Q19.9 6.4 19 9.5Q18.1 6.4 15 5.5Q18.1 4.6 19 1.5Z', fill: '#fff' })
+            ])
         ]);
     }
 
@@ -151,7 +178,7 @@
     const stack = document.createElement('div');
     stack.className = 'stack';
     stack.setAttribute('role', 'region');
-    stack.setAttribute('aria-label', 'CF-Photos 通知');
+    stack.setAttribute('aria-label', 'PhotoFlare 通知');
     root.append(stack);
 
     const toasts = new Map();
@@ -162,7 +189,8 @@
      * 显示或更新一条通知。id 相同则原地更新（进度 → 成功 / 失败），seq 不大于已应用值的更新直接丢弃。
      * @param {{id: string, kind: 'progress'|'success'|'error', title: string, message?: string,
      *          mono?: boolean, progress?: number, url?: string, copyText?: string,
-     *          thumb?: string, duration?: number, seq?: number}} options
+     *          thumb?: string, duration?: number, seq?: number,
+     *          theme?: 'dark'|'light', position?: 'top-right'|'top-left'|'bottom-left'|'bottom-right'}} options
      */
     function show(options) {
         const last = appliedSeq.get(options.id) ?? -Infinity;
@@ -171,6 +199,10 @@
             appliedSeq.set(options.id, options.seq);
         }
 
+        // 主题与位置作用于整个通知栈；设置在两次上传之间改了，下一条通知起生效
+        stack.dataset.theme = options.theme === 'light' ? 'light' : 'dark';
+        stack.dataset.position = POSITIONS.includes(options.position) ? options.position : POSITIONS[0];
+
         // 挂在 <html> 而不是 <body> 上：body 带 transform / filter 时 fixed 定位会相对 body 失效
         if (!host.isConnected) document.documentElement.append(host);
 
@@ -178,7 +210,7 @@
         if (!entry) {
             entry = create(options.id);
             toasts.set(options.id, entry);
-            // 新通知在最上面，与 macOS 一致
+            // 新通知排在最靠屏幕边的位置：顶部两角在最上面（与 macOS 一致），底部两角靠 column-reverse 排在最下面
             stack.prepend(entry.el);
             while (toasts.size > MAX_TOASTS) dismiss(toasts.keys().next().value);
             // 下一帧再加 in，保证初始位置先被渲染，过渡才会触发
@@ -210,7 +242,7 @@
             parts.close,
             h('div', { class: 'icon' }, [appIcon(), parts.badge]),
             h('div', { class: 'body' }, [
-                h('div', { class: 'head' }, [h('span', { class: 'app' }, ['CF-Photos'])]),
+                h('div', { class: 'head' }, [h('span', { class: 'app' }, ['PhotoFlare'])]),
                 parts.title,
                 parts.message,
                 parts.bar,
@@ -299,7 +331,7 @@
     }
 
     /**
-     * 向右拖动超过阈值即关闭，否则回弹
+     * 朝通知所在一侧（右侧向右、左侧向左）拖动超过阈值即关闭，否则回弹
      */
     function enableSwipe(entry, id) {
         const { el } = entry;
@@ -317,9 +349,10 @@
         });
         el.addEventListener('pointermove', event => {
             if (event.pointerId !== pointerId) return;
-            dx = Math.max(0, event.clientX - startX);
+            const delta = event.clientX - startX;
+            dx = stack.dataset.position?.endsWith('left') ? Math.min(0, delta) : Math.max(0, delta);
             el.style.transform = `translateX(${dx}px)`;
-            el.style.opacity = String(Math.max(.2, 1 - dx / 300));
+            el.style.opacity = String(Math.max(.2, 1 - Math.abs(dx) / 300));
         });
         const end = event => {
             if (event.pointerId !== pointerId) return;
@@ -327,7 +360,7 @@
             el.classList.remove('dragging');
             el.style.transform = '';
             el.style.opacity = '';
-            if (dx > DISMISS_DISTANCE) dismiss(id);
+            if (Math.abs(dx) > DISMISS_DISTANCE) dismiss(id);
         };
         el.addEventListener('pointerup', end);
         el.addEventListener('pointercancel', end);

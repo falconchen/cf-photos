@@ -9,6 +9,8 @@ import {
     formatLink,
     mimeFromFilename,
     normalizeEndpoint,
+    normalizeTheme,
+    normalizeToastPosition,
     parseUploadResponse,
     sniffImageMime
 } from './lib/shared.js';
@@ -100,7 +102,7 @@ async function uploadOne(item) {
     const settings = await getSettings();
     const toast = { id: `one-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, thumb: item.srcUrl };
     if (settings.notify) {
-        showToast(item.tabId, { ...toast, kind: 'progress', title: '正在上传…', message: describeSource(item.srcUrl) });
+        showToast(item.tabId, settings, { ...toast, kind: 'progress', title: '正在上传…', message: describeSource(item.srcUrl) });
     }
 
     try {
@@ -109,7 +111,7 @@ async function uploadOne(item) {
         let copied = false;
         if (settings.autoCopy) copied = await copyText(link).then(() => true, () => false);
         if (settings.notify) {
-            showToast(item.tabId, {
+            showToast(item.tabId, settings, {
                 ...toast,
                 kind: 'success',
                 title: copied ? '上传成功，链接已复制' : '上传成功',
@@ -123,7 +125,7 @@ async function uploadOne(item) {
         return link;
     } catch (error) {
         // 失败不受通知开关控制，否则用户根本不知道没传上去
-        showToast(item.tabId, { ...toast, kind: 'error', title: '上传失败', message: error.message, duration: 10000 });
+        showToast(item.tabId, settings, { ...toast, kind: 'error', title: '上传失败', message: error.message, duration: 10000 });
         throw error;
     }
 }
@@ -142,7 +144,7 @@ async function runBatch(items) {
     let finished = 0;
     const reportProgress = () => {
         if (!settings.notify) return;
-        showToast(tabId, {
+        showToast(tabId, settings, {
             ...toast,
             kind: 'progress',
             title: items.length === 1 ? '正在上传…' : `正在上传 ${finished}/${items.length} 张`,
@@ -199,7 +201,7 @@ async function runBatch(items) {
         if (copied) lines.push(`${links.length} 条链接已复制`);
         else if (singleUrl) lines.push(singleUrl);
         if (firstError) lines.push(firstError);
-        showToast(tabId, {
+        showToast(tabId, settings, {
             ...toast,
             kind: links.length ? 'success' : 'error',
             title,
@@ -451,16 +453,22 @@ function addHistory(entry) {
 let toastSeq = 0;
 
 /**
- * 在页面右上角显示通知（见 content/toast.js）。只注入顶层 frame，iframe 里的会被裁切。
+ * 在页面上显示通知（见 content/toast.js），位置与主题取自设置。只注入顶层 frame，iframe 里的会被裁切。
  * 浏览器内置页、扩展商店等不允许注入的页面，退回到工具栏图标角标。
  *
  * 各次注入互不等待，每条带递增的 seq，由页面侧丢弃比已显示状态更旧的更新。
  * 不能靠后台排队保序：注入超时并不会取消注入，迟到的「进度」照样可能落在「成功」之后。
  * @param {number|undefined} tabId
+ * @param {typeof DEFAULT_SETTINGS} settings
  * @param {Object} options 传给 __cfPhotosToast.show 的参数
  */
-function showToast(tabId, options) {
-    injectToast(tabId, { ...options, seq: ++toastSeq });
+function showToast(tabId, settings, options) {
+    injectToast(tabId, {
+        ...options,
+        theme: normalizeTheme(settings.theme),
+        position: normalizeToastPosition(settings.toastPosition),
+        seq: ++toastSeq
+    });
 }
 
 /**
@@ -516,7 +524,7 @@ function withTimeout(promise, ms = 10000) {
 async function flashBadge(tabId, isError) {
     const scope = tabId === undefined ? {} : { tabId };
     try {
-        await chrome.action.setBadgeBackgroundColor({ ...scope, color: isError ? '#ff453a' : '#28c840' });
+        await chrome.action.setBadgeBackgroundColor({ ...scope, color: isError ? '#ef4444' : '#10b981' });
         await chrome.action.setBadgeText({ ...scope, text: isError ? '!' : '✓' });
         setTimeout(() => chrome.action.setBadgeText({ ...scope, text: '' }).catch(() => {}), 4000);
     } catch {

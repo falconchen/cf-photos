@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CF-Photos 图床助手 · 设置</title>
+<title>PhotoFlare 图床助手 · 设置</title>
 <link rel="stylesheet" href="styles.css">
+<script src="theme.js"></script>
 </head>
 <body class="options">
 <main class="options-card">
-  <h1><img src="icons/icon32.png" alt="" width="30" height="30"> 图床设置</h1>
+  <h1 class="brand"><img src="icons/logo.svg" alt="" width="32" height="32"><span>PhotoFlare</span></h1>
+  <p class="subtitle">图床助手 · 设置</p>
 
   <form id="form" autocomplete="off">
     <label class="field">
@@ -31,12 +33,23 @@
       <select id="format"></select>
     </label>
 
+    <label class="field">
+      <span>主题</span>
+      <select id="theme"></select>
+      <small>弹窗、设置页与页面内通知的配色。</small>
+    </label>
+
+    <label class="field">
+      <span>通知位置</span>
+      <select id="toastPosition"></select>
+    </label>
+
     <label class="check"><input id="autoCopy" type="checkbox"> 上传后自动复制链接</label>
-    <label class="check"><input id="notify" type="checkbox"> 在页面右上角显示通知</label>
+    <label class="check"><input id="notify" type="checkbox"> 上传时在页面上显示通知</label>
 
     <div class="actions">
       <button type="submit" class="primary">保存</button>
-      <button type="button" id="test">测试连接</button>
+      <button type="button" id="test" class="soft">测试连接</button>
       <span id="status" class="status" role="status"></span>
     </div>
   </form>

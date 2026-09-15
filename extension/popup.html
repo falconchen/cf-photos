@@ -2,11 +2,13 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>CF-Photos 图床助手</title>
+<title>PhotoFlare 图床助手</title>
 <link rel="stylesheet" href="styles.css">
+<script src="theme.js"></script>
 </head>
 <body class="popup">
 <header class="bar">
+  <div class="brand"><img src="icons/logo.svg" alt="" width="30" height="30"><span>PhotoFlare</span></div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-tab="page" aria-selected="true">本页图片</button>
     <button role="tab" data-tab="history" aria-selected="false">最近上传</button>
@@ -28,7 +30,7 @@
   <p id="empty" class="empty" hidden></p>
   <footer class="footer">
     <span id="batch-status" class="muted" role="status"></span>
-    <button id="copy-results" hidden>复制链接</button>
+    <button id="copy-results" class="soft" hidden>复制链接</button>
     <button id="upload" class="primary" disabled>上传所选</button>
   </footer>
 </section>

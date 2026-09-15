@@ -608,8 +608,25 @@ export class ImageService {
     <title>PhotoFlare 管理后台</title>
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNjBhNWZhIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjYTg1NWY3Ii8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0idXJsKCNnKSIvPjxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjQiPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTgiIHI9IjguNCIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTgiIHI9IjMuNSIvPjwvZz48Y2lyY2xlIGN4PSIxOC4yIiBjeT0iMTMuOCIgcj0iMS4xNSIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNC4yIDMuNHExLjEgMy43IDQuOCA0LjgtMy43IDEuMS00LjggNC44LTEuMS0zLjctNC44LTQuOCAzLjctMS4xIDQuOC00LjhaIiBmaWxsPSIjZmZmIi8+PC9zdmc+">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        // 在首屏绘制前恢复主题，避免页面先闪过深色背景
+        (() => {
+            let savedTheme = null;
+            try {
+                savedTheme = localStorage.getItem('cf_photo_theme');
+            } catch (_) {
+                // localStorage 不可用时保留原有深色主题
+            }
+            const hasSavedTheme = savedTheme === 'light' || savedTheme === 'dark';
+            const systemTheme = window.matchMedia?.('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+            document.documentElement.dataset.theme = hasSavedTheme ? savedTheme : systemTheme;
+        })();
+    </script>
     <style>
         :root {
+            color-scheme: dark;
             --primary: #3b82f6;
             --bg: #0f172a;
             --card-bg: rgba(30, 41, 59, 0.7);
@@ -617,6 +634,51 @@ export class ImageService {
             --text-dim: #94a3b8;
             --danger: #ef4444;
             --success: #10b981;
+            --body-gradient: radial-gradient(circle at 50% -20%, #1e293b, #0f172a);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --surface-border-subtle: rgba(255, 255, 255, 0.05);
+            --control-bg: rgba(15, 23, 42, 0.5);
+            --preview-bg: #1e293b;
+            --skeleton-base: #1e293b;
+            --skeleton-highlight: #334155;
+            --soft-button-bg: rgba(255, 255, 255, 0.1);
+            --modal-bg: #1e293b;
+            --overlay-bg: rgba(0, 0, 0, 0.8);
+            --dropzone-bg: rgba(15, 23, 42, 0.3);
+            --upload-item-bg: rgba(15, 23, 42, 0.4);
+            --media-bg: rgba(0, 0, 0, 0.2);
+            --progress-track: rgba(255, 255, 255, 0.1);
+            --selection-bg: #1e293b;
+            --card-shadow: rgba(0, 0, 0, 0.3);
+            --dialog-shadow: rgba(0, 0, 0, 0.5);
+        }
+
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --primary: #2563eb;
+            --bg: #f4f7fb;
+            --card-bg: rgba(255, 255, 255, 0.88);
+            --text: #0f172a;
+            --text-dim: #526278;
+            --danger: #dc2626;
+            --success: #047857;
+            --body-gradient: radial-gradient(circle at 50% -20%, #dbeafe, #f4f7fb 55%);
+            --surface-border: rgba(15, 23, 42, 0.14);
+            --surface-border-subtle: rgba(15, 23, 42, 0.09);
+            --control-bg: rgba(255, 255, 255, 0.9);
+            --preview-bg: #e2e8f0;
+            --skeleton-base: #e2e8f0;
+            --skeleton-highlight: #f8fafc;
+            --soft-button-bg: rgba(15, 23, 42, 0.07);
+            --modal-bg: #ffffff;
+            --overlay-bg: rgba(15, 23, 42, 0.48);
+            --dropzone-bg: rgba(241, 245, 249, 0.9);
+            --upload-item-bg: #f8fafc;
+            --media-bg: rgba(15, 23, 42, 0.08);
+            --progress-track: rgba(15, 23, 42, 0.12);
+            --selection-bg: #ffffff;
+            --card-shadow: rgba(15, 23, 42, 0.14);
+            --dialog-shadow: rgba(15, 23, 42, 0.2);
         }
 
         * {
@@ -631,7 +693,8 @@ export class ImageService {
             color: var(--text);
             line-height: 1.5;
             min-height: 100vh;
-            background-image: radial-gradient(circle at 50% -20%, #1e293b, #0f172a);
+            background-image: var(--body-gradient);
+            transition: background-color 0.2s, color 0.2s;
         }
 
         .container {
@@ -684,10 +747,10 @@ export class ImageService {
             backdrop-filter: blur(12px);
             padding: 2.5rem;
             border-radius: 1.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--surface-border);
             width: 100%;
             max-width: 400px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 25px 50px -12px var(--dialog-shadow);
         }
 
         .login-card h2 {
@@ -698,10 +761,10 @@ export class ImageService {
         input {
             width: 100%;
             padding: 0.75rem 1rem;
-            background: rgba(15, 23, 42, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--control-bg);
+            border: 1px solid var(--surface-border);
             border-radius: 0.75rem;
-            color: white;
+            color: var(--text);
             margin-bottom: 1rem;
             outline: none;
             transition: border-color 0.2s;
@@ -727,6 +790,13 @@ export class ImageService {
             opacity: 0.9;
         }
 
+        button:focus-visible,
+        input:focus-visible,
+        select:focus-visible {
+            outline: 3px solid rgba(59, 130, 246, 0.35);
+            outline-offset: 2px;
+        }
+
         /* Dashboard */
         #dashboard {
             display: none;
@@ -736,6 +806,40 @@ export class ImageService {
         #header-actions {
             display: none;
             gap: 0.75rem;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+
+        .theme-toggle {
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            flex: 0 0 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text);
+            background: var(--soft-button-bg);
+            border: 1px solid var(--surface-border);
+        }
+
+        .theme-toggle svg {
+            width: 19px;
+            height: 19px;
+        }
+
+        .theme-icon-moon,
+        :root[data-theme="light"] .theme-icon-sun {
+            display: none;
+        }
+
+        :root[data-theme="light"] .theme-icon-moon {
+            display: block;
         }
 
         .grid {
@@ -748,19 +852,19 @@ export class ImageService {
             background: var(--card-bg);
             border-radius: 1rem;
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--surface-border-subtle);
             transition: transform 0.2s, box-shadow 0.2s;
             position: relative;
         }
 
         .image-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 10px 20px var(--card-shadow);
         }
 
         .image-preview {
             aspect-ratio: 16/10;
-            background-color: #1e293b;
+            background-color: var(--preview-bg);
             cursor: pointer;
             position: relative;
             overflow: hidden;
@@ -784,7 +888,7 @@ export class ImageService {
         }
 
         .pulse {
-            background: linear-gradient(-45deg, #1e293b, #334155, #1e293b);
+            background: linear-gradient(-45deg, var(--skeleton-base), var(--skeleton-highlight), var(--skeleton-base));
             background-size: 400% 400%;
             animation: pulse 1.5s ease infinite;
         }
@@ -869,7 +973,7 @@ export class ImageService {
         }
 
         .btn-copy {
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--soft-button-bg);
         }
 
         .btn-delete {
@@ -978,7 +1082,7 @@ export class ImageService {
             align-content: center;
             flex-wrap: wrap;
             gap: 0.6rem;
-            background: #1e293b;
+            background: var(--selection-bg);
             border: 1px solid rgba(59, 130, 246, 0.45);
             border-radius: 1rem;
             padding: 1rem 1.5rem;
@@ -990,7 +1094,7 @@ export class ImageService {
         .toolbar-slot.selecting > .selection-bar {
             visibility: visible;
             opacity: 1;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+            box-shadow: 0 10px 25px var(--card-shadow);
         }
 
         @media (prefers-reduced-motion: reduce) {
@@ -1014,9 +1118,9 @@ export class ImageService {
         }
 
         .btn-ghost {
-            background: rgba(255, 255, 255, 0.08);
+            background: var(--soft-button-bg);
             color: var(--text);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid var(--surface-border);
         }
 
         .btn-danger-solid {
@@ -1053,7 +1157,7 @@ export class ImageService {
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.8);
+            background: var(--overlay-bg);
             backdrop-filter: blur(8px);
             display: none;
             justify-content: center;
@@ -1062,21 +1166,21 @@ export class ImageService {
         }
 
         .modal {
-            background: #1e293b;
+            background: var(--modal-bg);
             width: 100%;
             max-width: 600px;
             margin: 1rem;
             max-height: calc(100vh - 2rem);
             overflow-y: auto;
             border-radius: 1.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--surface-border);
+            box-shadow: 0 25px 50px -12px var(--dialog-shadow);
             overflow: hidden;
         }
 
         .modal-header {
             padding: 1.5rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--surface-border-subtle);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1103,13 +1207,13 @@ export class ImageService {
 
         /* Upload Area */
         .upload-dropzone {
-            border: 2px dashed rgba(255, 255, 255, 0.1);
+            border: 2px dashed var(--surface-border);
             border-radius: 1rem;
             padding: 3rem 2rem;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
-            background: rgba(15, 23, 42, 0.3);
+            background: var(--dropzone-bg);
         }
 
         .upload-dropzone.active {
@@ -1139,11 +1243,11 @@ export class ImageService {
             display: flex;
             align-items: center;
             gap: 1rem;
-            background: rgba(15, 23, 42, 0.4);
+            background: var(--upload-item-bg);
             padding: 0.6rem 0.75rem;
             border-radius: 0.75rem;
             margin-bottom: 0.5rem;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--surface-border-subtle);
         }
 
         .upload-item-thumb {
@@ -1151,7 +1255,7 @@ export class ImageService {
             height: 40px;
             border-radius: 0.4rem;
             object-fit: cover;
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--media-bg);
             flex-shrink: 0;
         }
 
@@ -1167,7 +1271,7 @@ export class ImageService {
         /* <video> 直接铺满预览框，取代 .real-image 的背景图方案 */
         video.real-image {
             object-fit: cover;
-            background: #0f172a;
+            background: var(--preview-bg);
         }
 
         .upload-item-info {
@@ -1191,7 +1295,7 @@ export class ImageService {
 
         .upload-item-progress {
             height: 4px;
-            background: rgba(255, 255, 255, 0.1);
+            background: var(--progress-track);
             border-radius: 2px;
             margin-top: 0.4rem;
             overflow: hidden;
@@ -1276,7 +1380,7 @@ export class ImageService {
             flex-wrap: wrap;
             gap: 1rem 1.5rem;
             align-items: center;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--surface-border-subtle);
         }
 
         .filter-bar .spacer {
@@ -1296,9 +1400,9 @@ export class ImageService {
         }
 
         .select-group select {
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: white;
+            background: var(--control-bg);
+            border: 1px solid var(--surface-border);
+            color: var(--text);
             padding: 0.4rem 1rem;
             border-radius: 0.5rem;
             outline: none;
@@ -1336,13 +1440,17 @@ export class ImageService {
             }
 
             header {
-                flex-direction: column;
-                align-items: stretch;
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: center;
                 gap: 1rem;
                 margin-bottom: 1.75rem;
             }
 
             h1 {
+                grid-column: 1;
+                grid-row: 1;
+                min-width: 0;
                 font-size: 1.5rem;
                 gap: 0.5rem;
             }
@@ -1354,12 +1462,23 @@ export class ImageService {
 
             /* showDashboard() 会把 display 改成 flex，这里只调布局 */
             #header-actions {
+                grid-column: 1 / -1;
+                grid-row: 2;
                 width: 100%;
             }
 
             #header-actions > button {
                 flex: 1;
                 padding: 0.55rem 0.75rem;
+            }
+
+            .header-controls {
+                display: contents;
+            }
+
+            .theme-toggle {
+                grid-column: 2;
+                grid-row: 1;
             }
 
             #login-screen {
@@ -1454,15 +1573,21 @@ export class ImageService {
                 </svg>
                 PhotoFlare
             </h1>
-            <div id="header-actions">
-                <button class="btn-primary" onclick="showUploadModal()">
-                    <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    上传文件
+            <div class="header-controls">
+                <button type="button" class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="切换到浅色主题" title="切换到浅色主题">
+                    <svg class="theme-icon-sun" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" stroke-width="2"></circle><path stroke-linecap="round" stroke-width="2" d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path></svg>
+                    <svg class="theme-icon-moon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"></path></svg>
                 </button>
-                <button class="logout-btn" onclick="logout()">
-                    <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
-                    退出登录
-                </button>
+                <div id="header-actions">
+                    <button class="btn-primary" onclick="showUploadModal()">
+                        <svg style="width: 18px; height: 18px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        上传文件
+                    </button>
+                    <button class="logout-btn" onclick="logout()">
+                        <svg style="width: 16px; height: 16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        退出登录
+                    </button>
+                </div>
             </div>
         </header>
 
@@ -1548,6 +1673,7 @@ export class ImageService {
         let isLoading = false;
 
         document.addEventListener('DOMContentLoaded', () => {
+            updateThemeToggle();
             const token = localStorage.getItem('cf_photo_token');
             if (token) {
                 showDashboard();
@@ -1556,6 +1682,34 @@ export class ImageService {
             initDragAndDrop();
             initPasteSupport();
         });
+
+        /**
+         * 根据当前主题同步按钮的无障碍说明
+         */
+        function updateThemeToggle() {
+            const button = document.getElementById('theme-toggle');
+            if (!button) return;
+            const label = document.documentElement.dataset.theme === 'light'
+                ? '切换到深色主题'
+                : '切换到浅色主题';
+            button.setAttribute('aria-label', label);
+            button.title = label;
+        }
+
+        /**
+         * 切换主题并持久化用户选择
+         */
+        function toggleTheme() {
+            const root = document.documentElement;
+            const nextTheme = root.dataset.theme === 'light' ? 'dark' : 'light';
+            root.dataset.theme = nextTheme;
+            try {
+                localStorage.setItem('cf_photo_theme', nextTheme);
+            } catch (_) {
+                // localStorage 不可用时，本次浏览仍可正常切换
+            }
+            updateThemeToggle();
+        }
 
         function login() {
             const token = document.getElementById('token-input').value;

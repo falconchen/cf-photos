@@ -6,7 +6,10 @@ import {
     deriveFilename,
     formatLink,
     mimeFromFilename,
+    DEFAULT_SETTINGS,
     normalizeEndpoint,
+    normalizeTheme,
+    normalizeToastPosition,
     parseUploadResponse,
     sniffImageMime
 } from '../extension/lib/shared.js';
@@ -22,6 +25,22 @@ test('normalizeEndpoint 只保留源，拒绝非 http(s) 与带凭据的地址',
     assert.equal(normalizeEndpoint('ftp://example.com'), '');
     assert.equal(normalizeEndpoint('https://u:p@example.com'), '');
     assert.equal(normalizeEndpoint('   '), '');
+});
+
+test('主题与通知位置默认深色、右上，非法值回落到默认', () => {
+    assert.equal(DEFAULT_SETTINGS.theme, 'dark');
+    assert.equal(DEFAULT_SETTINGS.toastPosition, 'top-right');
+    assert.equal(normalizeTheme('light'), 'light');
+    assert.equal(normalizeTheme('dark'), 'dark');
+    for (const bad of [undefined, '', 'system', 'toString', {}]) {
+        assert.equal(normalizeTheme(bad), 'dark');
+    }
+    for (const position of ['top-right', 'top-left', 'bottom-left', 'bottom-right']) {
+        assert.equal(normalizeToastPosition(position), position);
+    }
+    for (const bad of [undefined, 'center', 'constructor', null]) {
+        assert.equal(normalizeToastPosition(bad), 'top-right');
+    }
 });
 
 test('sniffImageMime 认出常见图片文件头', () => {
@@ -89,7 +108,8 @@ test('manifest 引用的文件都存在', () => {
         ...Object.values(manifest.icons),
         ...Object.values(manifest.action.default_icon),
         'offscreen.html',
-        'content/toast.js'
+        'content/toast.js',
+        'theme.js'
     ];
     for (const file of files) {
         assert.doesNotThrow(() => readFileSync(new URL(file, root)), `缺少 ${file}`);
