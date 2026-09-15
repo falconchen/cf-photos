@@ -92,23 +92,38 @@ async function getSettings() {
 }
 
 /**
- * 右键单张上传：成功后按设置复制并通知，失败时通知原因
+ * 右键单张上传：页面内先显示进度，成功后按设置复制并更新为成功，失败时显示原因
  * @param {{srcUrl: string, pageUrl: string, tabId?: number, frameId?: number, alt?: string}} item
  * @returns {Promise<string>} 格式化后的链接
  */
 async function uploadOne(item) {
     const settings = await getSettings();
+    const toast = { id: `one-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, thumb: item.srcUrl };
+    if (settings.notify) {
+        showToast(item.tabId, { ...toast, kind: 'progress', title: '正在上传…', message: describeSource(item.srcUrl) });
+    }
+
     try {
         const url = await uploadImage(item, settings);
         const link = formatLink(url, settings.format, item.alt);
         let copied = false;
         if (settings.autoCopy) copied = await copyText(link).then(() => true, () => false);
         if (settings.notify) {
-            notify('上传成功', copied ? `已复制：${link}` : url);
+            showToast(item.tabId, {
+                ...toast,
+                kind: 'success',
+                title: copied ? '上传成功，链接已复制' : '上传成功',
+                message: url,
+                mono: true,
+                url,
+                copyText: link,
+                duration: 6000
+            });
         }
         return link;
     } catch (error) {
-        notify('上传失败', error.message);
+        // 失败不受通知开关控制，否则用户根本不知道没传上去
+        showToast(item.tabId, { ...toast, kind: 'error', title: '上传失败', message: error.message, duration: 10000 });
         throw error;
     }
 }
@@ -121,6 +136,21 @@ async function runBatch(items) {
     const settings = await getSettings();
     const jobs = Object.fromEntries(items.map(item => [item.id, { status: 'pending', srcUrl: item.srcUrl }]));
     await chrome.storage.session.set({ batch: { running: true, jobs } });
+
+    const tabId = items[0]?.tabId;
+    const toast = { id: `batch-${Date.now()}`, thumb: items[0]?.srcUrl };
+    let finished = 0;
+    const reportProgress = () => {
+        if (!settings.notify) return;
+        showToast(tabId, {
+            ...toast,
+            kind: 'progress',
+            title: items.length === 1 ? '正在上传…' : `正在上传 ${finished}/${items.length} 张`,
+            message: items.length === 1 ? describeSource(items[0].srcUrl) : '',
+            progress: items.length === 1 ? undefined : finished / items.length
+        });
+    };
+    reportProgress();
 
     // 进度写入串行化，避免并发的 get/set 互相覆盖
     let writing = Promise.resolve();
@@ -143,6 +173,8 @@ async function runBatch(items) {
             } catch (error) {
                 await update(item.id, { status: 'error', error: error.message });
             }
+            finished++;
+            reportProgress();
         }
     };
     await Promise.all(Array.from({ length: Math.min(BATCH_CONCURRENCY, items.length) }, worker));
@@ -157,11 +189,26 @@ async function runBatch(items) {
     }
     await chrome.storage.session.set({ batch: { running: false, jobs, copied } });
 
-    if (settings.notify) {
-        const parts = [`成功 ${links.length} 张`];
-        if (failed) parts.push(`失败 ${failed} 张`);
-        if (copied) parts.push('链接已复制');
-        notify('批量上传完成', parts.join('，'));
+    const firstError = items.map(item => jobs[item.id].error).find(Boolean);
+    if (settings.notify || failed) {
+        const title = links.length === 0 ? `上传失败 ${failed} 张`
+            : failed ? `成功 ${links.length} 张，失败 ${failed} 张`
+                : `成功上传 ${links.length} 张`;
+        const singleUrl = links.length === 1 ? items.map(item => jobs[item.id].url).find(Boolean) : undefined;
+        const lines = [];
+        if (copied) lines.push(`${links.length} 条链接已复制`);
+        else if (singleUrl) lines.push(singleUrl);
+        if (firstError) lines.push(firstError);
+        showToast(tabId, {
+            ...toast,
+            kind: links.length ? 'success' : 'error',
+            title,
+            message: lines.join('；'),
+            mono: Boolean(singleUrl && !copied && !firstError),
+            url: singleUrl,
+            copyText: links.join('\n'),
+            duration: failed ? 10000 : 8000
+        });
     }
 }
 
@@ -315,8 +362,10 @@ function nextRuleId() {
  * @returns {Promise<Blob>}
  */
 async function fetchInPage(tabId, frameId, srcUrl) {
-    const [injection] = await chrome.scripting.executeScript({
+    const [injection] = await withTimeout(chrome.scripting.executeScript({
         target: { tabId, frameIds: [frameId || 0] },
+        // 页面仍在 loading 时默认会等到 document_idle 才注入，可能一直挂起
+        injectImmediately: true,
         args: [srcUrl],
         func: async (url) => {
             try {
@@ -334,7 +383,7 @@ async function fetchInPage(tabId, frameId, srcUrl) {
                 return { error: error.message };
             }
         }
-    });
+    }), FETCH_TIMEOUT_MS);
 
     const result = injection?.result;
     if (!result?.dataUrl) throw new Error(`页面内取图失败：${result?.error || '无结果'}`);
@@ -399,18 +448,97 @@ function addHistory(entry) {
     return historyWriting;
 }
 
+let toastSeq = 0;
+
 /**
- * 弹出系统通知
- * @param {string} title
- * @param {string} message
+ * 在页面右上角显示通知（见 content/toast.js）。只注入顶层 frame，iframe 里的会被裁切。
+ * 浏览器内置页、扩展商店等不允许注入的页面，退回到工具栏图标角标。
+ *
+ * 各次注入互不等待，每条带递增的 seq，由页面侧丢弃比已显示状态更旧的更新。
+ * 不能靠后台排队保序：注入超时并不会取消注入，迟到的「进度」照样可能落在「成功」之后。
+ * @param {number|undefined} tabId
+ * @param {Object} options 传给 __cfPhotosToast.show 的参数
  */
-function notify(title, message) {
-    chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'icons/icon128.png',
-        title,
-        message: String(message).slice(0, 300)
-    });
+function showToast(tabId, options) {
+    injectToast(tabId, { ...options, seq: ++toastSeq });
+}
+
+/**
+ * 在顶层 frame 调用 __cfPhotosToast.show；页面里还没有就先注入 toast.js 再调一次。
+ * 不允许注入的页面退回到角标。
+ * @param {number|undefined} tabId
+ * @param {Object} options
+ */
+async function injectToast(tabId, options) {
+    const call = target => withTimeout(chrome.scripting.executeScript({
+        target,
+        // 不等 document_idle：GitHub 这类页面长时间处于 loading，默认时机会让注入一直挂起
+        injectImmediately: true,
+        args: [options],
+        func: payload => {
+            if (!window.__cfPhotosToast) return false;
+            window.__cfPhotosToast.show(payload);
+            return true;
+        }
+    })).then(([injection]) => injection?.result === true);
+
+    try {
+        if (tabId === undefined) throw new Error('没有可用的标签页');
+        const target = { tabId, frameIds: [0] };
+        if (await call(target)) return;
+        await withTimeout(chrome.scripting.executeScript({ target, files: ['content/toast.js'], injectImmediately: true }));
+        if (!await call(target)) throw new Error('通知脚本未就绪');
+    } catch (error) {
+        console.warn(`页面内通知失败（${options.kind}），改用图标角标：${error.message}`);
+        if (options.kind !== 'progress') flashBadge(tabId, options.kind === 'error');
+    }
+}
+
+/**
+ * 给注入加超时，避免页面卡住时通知队列永远等下去
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} [ms]
+ * @returns {Promise<T>}
+ */
+function withTimeout(promise, ms = 10000) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('注入超时')), ms))
+    ]);
+}
+
+/**
+ * 工具栏图标上闪一下 ✓ / ! 角标，几秒后清掉
+ * @param {number|undefined} tabId
+ * @param {boolean} isError
+ */
+async function flashBadge(tabId, isError) {
+    const scope = tabId === undefined ? {} : { tabId };
+    try {
+        await chrome.action.setBadgeBackgroundColor({ ...scope, color: isError ? '#ff453a' : '#28c840' });
+        await chrome.action.setBadgeText({ ...scope, text: isError ? '!' : '✓' });
+        setTimeout(() => chrome.action.setBadgeText({ ...scope, text: '' }).catch(() => {}), 4000);
+    } catch {
+        // 标签页已关闭，忽略
+    }
+}
+
+/**
+ * 通知里展示的来源说明：http(s) 显示主机与文件名，内嵌图片给个类型说明
+ * @param {string} srcUrl
+ * @returns {string}
+ */
+function describeSource(srcUrl) {
+    if (srcUrl.startsWith('data:')) return '页面内嵌图片';
+    if (srcUrl.startsWith('blob:')) return '页面生成的图片';
+    try {
+        const url = new URL(srcUrl);
+        const name = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() || '');
+        return name ? `${url.hostname} · ${name}` : url.hostname;
+    } catch {
+        return '';
+    }
 }
 
 /**

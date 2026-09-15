@@ -88,7 +88,8 @@ test('manifest 引用的文件都存在', () => {
         manifest.options_page,
         ...Object.values(manifest.icons),
         ...Object.values(manifest.action.default_icon),
-        'offscreen.html'
+        'offscreen.html',
+        'content/toast.js'
     ];
     for (const file of files) {
         assert.doesNotThrow(() => readFileSync(new URL(file, root)), `缺少 ${file}`);

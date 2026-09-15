@@ -26,7 +26,6 @@
   "permissions": [
     "contextMenus",
     "storage",
-    "notifications",
     "offscreen",
     "scripting",
     "activeTab",

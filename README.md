@@ -210,6 +210,7 @@ curl -H "Authorization: Bearer your_secret_token" \
 - 在图片上右键 →「上传到图床」。指向图片文件（`.png` / `.jpg` 等）的链接上右键 →「上传链接指向的图片」
 - 点工具栏图标打开弹窗，会列出当前页面的全部图片（`<img>` 与 `srcset` 最大候选、`<picture>`、懒加载的 `data-src`、CSS 背景图、`og:image`，含 iframe 内的），勾选后批量上传。上传在后台进行，关掉弹窗不会中断
 - 上传成功后按设置复制链接（URL / Markdown / HTML / BBCode），批量上传时每行一条；弹窗的「最近上传」保留最近 50 条
+- 结果以通知横幅的形式出现在当前页面右上角，仿 macOS 样式：从右侧滑入，先显示「正在上传」，完成后原地变成成功或失败，带「复制链接」「打开」按钮。鼠标悬停时暂停消失，向右拖动可关闭，跟随系统深色模式。设置里可以关掉，但失败通知始终显示。浏览器内置页、扩展商店这类不允许注入脚本的页面上，改为在工具栏图标上显示 ✓ / ! 角标
 
 **实现要点**：
 
@@ -219,6 +220,7 @@ curl -H "Authorization: Bearer your_secret_token" \
 - 类型按文件头嗅探，不信任源站的 `Content-Type`（CDN 常回 `application/octet-stream`），非图片不上传。文件名后缀与真实类型不符时（如 `.php` 出图）按真实类型改后缀，因为后端 WebDAV 是按后缀回 `Content-Type` 的
 - 上传走裸二进制 `POST /upload` + `X-Upload-Filename`，流式路径，没有 20 MB 的缓冲上限
 - Token 存在 `chrome.storage.local`，不随 Chrome 账号同步
+- 页面通知在需要时才注入（`content/toast.js`），不会常驻在每个页面里。样式放在 closed Shadow DOM 中，用构造样式表注入，DOM 全部由 `createElement` 生成，不受页面 CSS 影响，也不会被 CSP 或 Trusted Types 拦截（GitHub 上已验证）
 
 ## MCP 服务端
 

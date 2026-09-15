@@ -66,6 +66,8 @@ async function scanPage() {
     try {
         injections = await chrome.scripting.executeScript({
             target: { tabId: state.tab.id, allFrames: true },
+            // 不等 document_idle：页面迟迟加载不完时弹窗会一直停在「正在扫描」
+            injectImmediately: true,
             func: collectImages
         });
     } catch (error) {
