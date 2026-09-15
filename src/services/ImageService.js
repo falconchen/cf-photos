@@ -935,26 +935,69 @@ export class ImageService {
             }
         }
 
-        .selection-bar {
+        /* 筛选栏与选择栏叠放在同一网格单元里：槽位高度恒等于两者中较高的那个，
+           切换时只改 visibility/opacity、不改 display，勾选时下方网格因此不会位移 */
+        .toolbar-slot {
+            display: grid;
+            margin-bottom: 2rem;
+        }
+
+        .toolbar-slot > .filter-bar,
+        .toolbar-slot > .selection-bar {
+            grid-area: 1 / 1;
+            margin-bottom: 0;
+        }
+
+        /* 淡出时 visibility 延迟到过渡结束再切换；隐藏的一方不可聚焦、不可点击 */
+        .toolbar-slot > .filter-bar,
+        .toolbar-slot > .selection-bar {
+            transition: opacity 0.15s ease, visibility 0s linear 0.15s;
+        }
+
+        .toolbar-slot.selecting > .selection-bar,
+        .toolbar-slot:not(.selecting) > .filter-bar {
+            transition: opacity 0.15s ease, visibility 0s linear 0s;
+        }
+
+        .toolbar-slot.selecting > .filter-bar {
+            visibility: hidden;
+            opacity: 0;
+        }
+
+        /* 仅多选时吸顶：滚到下方勾选时仍能看到操作；sticky 始终占原位，不会引起位移 */
+        .toolbar-slot.selecting {
             position: sticky;
             top: 0.75rem;
             z-index: 50;
+        }
+
+        .selection-bar {
             display: flex;
             align-items: center;
+            /* 被较高的筛选栏拉伸时，换行后的几行仍聚在垂直中间，不被撑开 */
+            align-content: center;
             flex-wrap: wrap;
             gap: 0.6rem;
             background: #1e293b;
             border: 1px solid rgba(59, 130, 246, 0.45);
-            border-radius: 0.75rem;
-            padding: 0.6rem 0.75rem 0.6rem 1rem;
-            margin-bottom: 1.25rem;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+            border-radius: 1rem;
+            padding: 1rem 1.5rem;
             font-size: 0.875rem;
+            visibility: hidden;
+            opacity: 0;
         }
 
-        /* 元素自带 display:flex 会压过 hidden 属性，需要显式恢复 */
-        .selection-bar[hidden] {
-            display: none;
+        .toolbar-slot.selecting > .selection-bar {
+            visibility: visible;
+            opacity: 1;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .toolbar-slot > .filter-bar,
+            .toolbar-slot > .selection-bar {
+                transition: none;
+            }
         }
 
         .selection-bar .spacer {
@@ -1334,6 +1377,14 @@ export class ImageService {
                 margin-bottom: 1.5rem;
             }
 
+            .toolbar-slot {
+                margin-bottom: 1.5rem;
+            }
+
+            .selection-bar {
+                padding: 1rem;
+            }
+
             .filter-bar .spacer {
                 display: none;
             }
@@ -1428,7 +1479,8 @@ export class ImageService {
 
             <!-- Dashboard -->
             <div id="dashboard">
-                <div class="filter-bar">
+                <div class="toolbar-slot" id="toolbar-slot">
+                <div class="filter-bar" id="filter-bar">
                     <div class="select-group date-group">
                         <svg style="width: 16px; height: 16px; color: var(--text-dim); flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                         <label for="year-select">日期筛选:</label>
@@ -1454,12 +1506,13 @@ export class ImageService {
                         </select>
                     </div>
                 </div>
-                <div id="selection-bar" class="selection-bar" hidden>
+                <div id="selection-bar" class="selection-bar" aria-hidden="true">
                     <span id="selection-count">已选 0 项</span>
                     <div class="spacer"></div>
                     <button type="button" class="btn-ghost" id="select-all-btn" onclick="selectAllLoaded()">全选已加载</button>
                     <button type="button" class="btn-ghost" id="clear-selection-btn" onclick="clearSelection()">取消</button>
                     <button type="button" class="btn-danger-solid" id="batch-delete-btn" onclick="deleteSelected()">删除所选</button>
+                </div>
                 </div>
                 <div id="loading">正在加载...</div>
                 <div id="image-grid" class="grid"></div>
@@ -2137,7 +2190,10 @@ export class ImageService {
 
         function updateSelectionBar() {
             const count = selectedKeys.size;
-            document.getElementById('selection-bar').hidden = count === 0 && !batchDeleting;
+            const show = count > 0 || batchDeleting;
+            document.getElementById('toolbar-slot').classList.toggle('selecting', show);
+            document.getElementById('filter-bar').setAttribute('aria-hidden', String(show));
+            document.getElementById('selection-bar').setAttribute('aria-hidden', String(!show));
             document.getElementById('image-grid').classList.toggle('selecting', count > 0);
             if (batchDeleting) return;
             document.getElementById('selection-count').textContent = '已选 ' + count + ' 项';
