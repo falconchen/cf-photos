@@ -263,7 +263,27 @@ export class ImageService {
             //    <img> / <video> 这类子资源加载完全不受影响，所以 SVG 仍可正常内嵌显示、
             //    外站热链也照常工作。不加 Cross-Origin-Resource-Policy：那会打断热链，
             //    而热链正是图床要的。
-            headers.set('Content-Security-Policy', "default-src 'none'; script-src 'none'; sandbox");
+            //
+            //    音视频是唯一的例外，原因在于它「被当作文档打开」的方式和图片不一样：
+            //    图片文档直接复用已下载的主资源，不再发第二次请求；而 Chrome 给 mp4 生成
+            //    的是一个内置播放器文档，再由这个文档去拉同一个 URL 当**媒体子资源**，
+            //    sandbox 会让这次子资源请求直接失败（实测把 media-src 放宽到 * 也救不回来，
+            //    只报 net::ERR_BLOCKED_BY_CLIENT），页面就停在一个永远转圈的播放器上。
+            //    所以 video/* 与 audio/* 去掉 sandbox、改用 media-src 'self'（沙箱化的
+            //    不透明源下 'self' 谁也不匹配，去掉 sandbox 才谈得上用它）。这一格并没有
+            //    被削弱：能走到这里的类型是上面降级逻辑放行的音视频，配上 nosniff 浏览器
+            //    不会再把它当 HTML 解析，default-src 'none' 与 script-src 'none' 都还在。
+            //    style-src 'unsafe-inline' 同理：播放器那套控件是浏览器自己用行内样式画的，
+            //    不给就是三条 "Applying inline style violates..." 报错，而这个文档里根本
+            //    不存在会被样式注入的用户内容。
+            const documentMime = (headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+            const isMediaDocument = documentMime.startsWith('video/') || documentMime.startsWith('audio/');
+            headers.set(
+                'Content-Security-Policy',
+                isMediaDocument
+                    ? "default-src 'none'; script-src 'none'; media-src 'self'; style-src 'unsafe-inline'"
+                    : "default-src 'none'; script-src 'none'; sandbox"
+            );
             headers.set('X-Content-Type-Options', 'nosniff');
 
             // 添加缓存控制（可选，此处暂设为 1 天）
