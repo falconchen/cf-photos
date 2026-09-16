@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:ci": "wrangler deploy; s=$?; node scripts/notify-bark.mjs $s; exit $s",
     "test": "node --test"
   },
   "keywords": [],
