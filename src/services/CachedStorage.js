@@ -50,6 +50,15 @@ const L1_TTL_SECONDS = 3600;
 /** L2 兜底过期时间，防止绕过本层删掉的文件永久占用 KV 存储。 */
 const L2_TTL_SECONDS = 30 * 24 * 3600;
 
+/**
+ * 「这个对象超限」的墓碑存活时间。
+ *
+ * 比 L2_TTL_SECONDS 短得多是有意的：墓碑说的是「别再尝试缓存」，万一文件被绕过
+ * 本层换成了更小的一个（脚本、WebDAV 客户端直连），一天之后自己就会重新试一次。
+ * 经本层的 put() / delete() 会连墓碑一起清掉，不需要等它过期。
+ */
+const OVERSIZE_TTL_SECONDS = 24 * 3600;
+
 /** 与 WebDAVStorage.get() 完全一致的元数据白名单，不能多也不能少。 */
 const METADATA_HEADERS = ['content-type', 'content-length', 'last-modified', 'content-range', 'accept-ranges'];
 
@@ -206,12 +215,19 @@ export class CachedStorage {
         // 回完整 200），所以指望它分片等于每次拖拽都整文件回源一次。
         if (options.range) {
             const full = await this._lookup(key, true);
+            if (full?.oversize) return await this._fetchAndStore(key, options, true);
             if (full) return this._rangeObject(full, options.range);
             return await this._fetchAndStore(key, options);
         }
 
         const hit = await this._lookup(key, false);
-        if (hit) return this._object(hit.body, 200, hit.headers.get('etag'), hit.headers, `HIT-${hit.tier}`);
+        if (hit?.oversize) return await this._fetchAndStore(key, options, true);
+        if (hit) {
+            const headers = new Headers(hit.headers);
+            // 手里有完整字节，Range 才是真的可用 —— 只在命中时声明。
+            headers.set('accept-ranges', 'bytes');
+            return this._object(hit.body, 200, headers.get('etag'), headers, `HIT-${hit.tier}`);
+        }
 
         return await this._fetchAndStore(key, options);
     }
@@ -241,6 +257,9 @@ export class CachedStorage {
         if (this.kv) {
             try {
                 const { value, metadata } = await this.kv.getWithMetadata(key, { type: 'arrayBuffer' });
+                // 墓碑必须在 value 之前判：它的值是 0 字节的 ArrayBuffer，而空
+                // ArrayBuffer 是真值，顺序颠倒会把它当成一个空文件发出去。
+                if (metadata?.big) return { oversize: true, tier: 'L2' };
                 if (value) {
                     const bytes = new Uint8Array(value);
                     const headers = this._headersFromMetadata(metadata, bytes.byteLength);
@@ -296,9 +315,10 @@ export class CachedStorage {
      * 回源，顺带在可以缓存时写入两层
      * @param {string} key 存储键
      * @param {Object} options 透传给内层，可能带 range
+     * @param {boolean} [knownOversize] 墓碑已经说过它超限，别再白读一遍
      * @returns {Promise<Object|null>}
      */
-    async _fetchAndStore(key, options) {
+    async _fetchAndStore(key, options, knownOversize = false) {
         const object = await this.storage.get(key, options);
         if (object === null) return null;
 
@@ -309,8 +329,11 @@ export class CachedStorage {
         // （teracloud 的 Apache 开了 mod_deflate）会 gzip 响应，workerd 透明解压后
         // 这个头就没了 —— 实测生产环境每个文件都缺它，ETag 尾部的 -gzip 是证据。
         // 真正的体积约束是 drain() 里边读边数的那个计数器，头缺失或撒谎都照样兜住。
+        // 声明的 Content-Length 只是一条快捷路，生产环境压根没有这个头（见下），
+        // 所以真正让超限文件被认出来的是墓碑：第一次读到一半发现超了就记一笔，
+        // 之后每次请求都能立刻走 BYPASS，既不白读 10 MB 也不谎称支持 Range。
         const declared = headers.get('content-length');
-        const oversize = declared !== null && Number(declared) > MAX_CACHE_BYTES;
+        const oversize = knownOversize || (declared !== null && Number(declared) > MAX_CACHE_BYTES);
 
         // 206 是部分内容，绝不能进按 URL 索引的缓存。200 则无论请求有没有带 Range，
         // 按定义都是完整表示，照常缓存 —— 生产环境的后端忽略 Range 就走这一路，
@@ -321,7 +344,9 @@ export class CachedStorage {
             return this._object(object.body, object.status || 200, object.httpEtag, headers, 'BYPASS');
         }
 
-        headers.set('accept-ranges', 'bytes');
+        // 这里**不**声明 accept-ranges：此刻还不知道它能不能装进缓存（后端不给
+        // Content-Length，只有读完才知道），而没进缓存就等于不支持 Range。
+        // 只有真正命中缓存的响应才声明，见 get() 与 _rangeObject()。
 
         // tee 而不是先读完再返回：客户端首字节延迟不受写缓存影响。
         const [toCaller, toCache] = object.body.tee();
@@ -355,7 +380,12 @@ export class CachedStorage {
      */
     async _store(key, stream, headers, etag) {
         const bytes = await drain(stream, MAX_CACHE_BYTES);
-        if (!bytes) return;
+        if (!bytes) {
+            // 读到一半才发现超限。这一次的响应头已经发出去了改不了，但可以记一笔，
+            // 让后续请求直接走 BYPASS —— 否则每个请求都要白读满 MAX_CACHE_BYTES。
+            await this._markOversize(key);
+            return;
+        }
 
         const stored = new Headers();
         for (const name of METADATA_HEADERS) {
@@ -371,6 +401,22 @@ export class CachedStorage {
         if (etag) stored.set('etag', etag);
 
         await Promise.all([this._writeEdge(key, bytes, stored), this._writeKV(key, bytes, stored)]);
+    }
+
+    /**
+     * 记下「这个对象超过缓存上限」
+     *
+     * 值是 0 字节，全部信息在 metadata.big 里；KV 是唯一能放它的地方，因为这条
+     * 判断必须全球生效，L1 按 colo 分片起不到作用。
+     * @param {string} key 存储键
+     * @returns {Promise<void>}
+     */
+    async _markOversize(key) {
+        if (!this.kv) return;
+        await this.kv.put(key, new Uint8Array(0), {
+            metadata: { big: 1 },
+            expirationTtl: OVERSIZE_TTL_SECONDS,
+        });
     }
 
     /**

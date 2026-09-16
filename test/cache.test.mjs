@@ -266,9 +266,10 @@ test('超过体积上限的对象不谎称支持 Range', async () => {
     assert.equal(headers.get('accept-ranges'), null, 'accept-ranges 必须被摘掉');
 });
 
-test('可缓存的对象会声明 accept-ranges', async () => {
+test('只有真正命中缓存才声明 accept-ranges', async () => {
+    // MISS 时还不知道对象装不装得进缓存 —— 后端（被 gzip 后）不给 Content-Length，
+    // 只有读完才知道。没进缓存就等于不支持 Range，所以 MISS 不能提前声明。
     const bare = inner();
-    // 后端被 gzip 之后不回 accept-ranges，本层要自己补上。
     bare.get = async (key, options = {}) => {
         bare.calls.get.push({ key, options });
         return {
@@ -280,9 +281,9 @@ test('可缓存的对象会声明 accept-ranges', async () => {
     };
     const { cached, ctx } = build(bare);
 
-    assert.equal(metadataOf(await cached.get(KEY)).get('accept-ranges'), 'bytes', 'MISS');
+    assert.equal(metadataOf(await cached.get(KEY)).get('accept-ranges'), null, 'MISS 不该声明');
     await ctx.settle();
-    assert.equal(metadataOf(await cached.get(KEY)).get('accept-ranges'), 'bytes', 'HIT-L1');
+    assert.equal(metadataOf(await cached.get(KEY)).get('accept-ranges'), 'bytes', 'HIT-L1 才声明');
 });
 
 test('缺少 Content-Length 仍然缓存，且补出正确的长度', async () => {
@@ -356,8 +357,81 @@ test('后端谎报 Content-Length 时由字节计数器兜住', async () => {
     assert.equal(metadataOf(object).get('X-Cache'), 'MISS', '快捷检查按声明值放行');
     assert.equal((await new Response(object.body).arrayBuffer()).byteLength, huge.byteLength, '客户端仍拿到完整内容');
     await ctx.settle();
-    assert.equal(kv.store.size, 0, '真实体积超限，不该落盘');
-    assert.equal(cache.store.size, 0);
+    assert.equal(cache.store.size, 0, 'L1 不该落盘');
+    // 内容本身没进 KV，进去的是一条 0 字节的墓碑。
+    assert.equal(kv.store.size, 1);
+    assert.deepEqual(kv.store.get(KEY).metadata, { big: 1 });
+    assert.equal(kv.store.get(KEY).value.byteLength, 0);
+});
+
+test('超限墓碑让后续请求立刻 BYPASS，不再白读一遍', async () => {
+    // 生产环境后端不给 Content-Length，超限只能读到一半才发现。没有墓碑的话每个
+    // 请求都要白读满 MAX_CACHE_BYTES，而且会对一个永远进不了缓存的对象谎称支持 Range。
+    const huge = new Uint8Array(12 * 1024 * 1024);
+    const liar = inner();
+    liar.get = async (key, options = {}) => {
+        liar.calls.get.push({ key, options });
+        return {
+            body: new Response(huge).body,
+            status: 200,
+            httpEtag: null,
+            // 和线上一样：既没有 content-length，也没有 accept-ranges。
+            writeHttpMetadata(target) { target.set('content-type', 'video/mp4'); },
+        };
+    };
+    const { cached, kv, ctx } = build(liar);
+
+    // 第一次：读到一半才发现超限，立墓碑。
+    await new Response((await cached.get(KEY)).body).arrayBuffer();
+    await ctx.settle();
+    assert.deepEqual(kv.store.get(KEY).metadata, { big: 1 });
+
+    // 第二次：墓碑生效，直接 BYPASS，且不谎称支持 Range。
+    const second = await cached.get(KEY);
+    const headers = metadataOf(second);
+    assert.equal(headers.get('X-Cache'), 'BYPASS');
+    assert.equal(headers.get('accept-ranges'), null, '进不了缓存就不该声明 accept-ranges');
+    assert.equal((await new Response(second.body).arrayBuffer()).byteLength, huge.byteLength, '内容仍然完整');
+
+    // 带 Range 的请求同样走 BYPASS，而不是被当成缓存命中去切片。
+    const ranged = await cached.get(KEY, { range: 'bytes=0-1023' });
+    assert.equal(metadataOf(ranged).get('X-Cache'), 'BYPASS');
+    assert.equal(metadataOf(ranged).get('accept-ranges'), null);
+    assert.equal(liar.calls.get.at(-1).options.range, 'bytes=0-1023', 'Range 原样带给后端');
+});
+
+test('墓碑不会被当成一个空文件发出去', async () => {
+    // 墓碑的值是 0 字节的 ArrayBuffer，而空 ArrayBuffer 是真值 —— 判断顺序错了
+    // 就会静默地把空内容当成缓存命中返回。
+    const storage = inner();
+    const kv = fakeKV();
+    await kv.put(KEY, new Uint8Array(0), { metadata: { big: 1 } });
+    const { cached } = build(storage, { kv });
+
+    const object = await cached.get(KEY);
+    assert.equal(metadataOf(object).get('X-Cache'), 'BYPASS');
+    assert.deepEqual(new Uint8Array(await new Response(object.body).arrayBuffer()), BYTES, '必须回源拿真内容');
+    assert.equal(storage.calls.get.length, 1);
+});
+
+test('写入或删除会连墓碑一起清掉', async () => {
+    const huge = new Uint8Array(12 * 1024 * 1024);
+    const liar = inner();
+    liar.get = async (key, options = {}) => {
+        liar.calls.get.push({ key, options });
+        return {
+            body: new Response(huge).body, status: 200, httpEtag: null,
+            writeHttpMetadata(target) { target.set('content-type', 'video/mp4'); },
+        };
+    };
+    const { cached, kv, ctx } = build(liar);
+
+    await new Response((await cached.get(KEY)).body).arrayBuffer();
+    await ctx.settle();
+    assert.equal(kv.store.size, 1, '墓碑已立');
+
+    await cached.delete(KEY);
+    assert.equal(kv.store.size, 0, '删除应连墓碑一起清掉，否则换成小文件后一天内都不缓存');
 });
 
 test('超过体积上限的文件不写缓存', async () => {
