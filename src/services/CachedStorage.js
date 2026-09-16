@@ -17,6 +17,15 @@
  *
  * 两层都是按绑定存在与否自动启用：没有 KV 绑定、或运行环境没有 caches（例如
  * node --test），本类静默退化成对内层存储的纯透传。
+ *
+ * Range 也由本层自己满足，而不是透传给后端：实测 teracloud 的 Apache 开了
+ * mod_deflate，gzip 与字节范围在 Apache 里互斥，它会直接忽略 Range 回完整 200
+ * （ETag 尾部的 -gzip 是标记，库里每种类型都被压，含 mp4）。也就是说线上的
+ * <video> 拖拽从来没真正生效过，每次 seek 都是一次整文件回源。缓存里既然躺着
+ * 完整字节，就在这里切片回真正的 206。后端那个「忽略 Range 的 200」反而有用：
+ * 200 按定义是完整表示，可以照常入缓存，这是只被 Range 访问过的视频唯一的入
+ * 缓存机会。本地 wrangler dev 那条链路不压缩，Range 能拿到 206 —— 所以这个问题
+ * 只在生产环境复现，别用本地结果判断。
  */
 
 /**
@@ -24,8 +33,14 @@
  *
  * 与 index.js 的 MAX_BUFFERED_UPLOAD 同源的理由：写缓存必须把字节读进内存，
  * 而 128 MB 的 isolate 内存是并发请求共享的，后台任务的 buffer 又与其他请求
- * 同时存活。10 MB 覆盖库里全部图片，只把视频排除在外，而视频本来就主要走
- * Range 路径（那条路径完全不碰缓存）。KV 单值硬限 25 MiB，这个数也在其下。
+ * 同时存活。KV 单值硬限 25 MiB，这个数也在其下。
+ *
+ * 支持从缓存切 Range 之后，这个数**更不该往上调**：切片需要手里有完整对象，
+ * 而播放器拖拽会并发发好几个 Range 请求，每一个都短暂持有一份完整副本。按
+ * 10 MB 算，6 个并发 seek 就是 60 MB，已经接近 isolate 的一半。写这段时库里
+ * 唯一超过它的文件是一个 10,530,343 字节的 mp4，它会继续走 BYPASS：那一个
+ * 文件拖不动，换来的是所有其他文件的并发安全，这个取舍是有意的。真要覆盖它，
+ * 该做的是让 L1 用 Cache API 原生的 Range 支持（零缓冲）而不是抬高上限。
  */
 const MAX_CACHE_BYTES = 10 * 1024 * 1024;
 
@@ -54,6 +69,39 @@ function defer(ctx, promise) {
     });
     if (typeof ctx?.waitUntil === 'function') ctx.waitUntil(guarded);
     return guarded;
+}
+
+/**
+ * 把 Range 头解析成确定的字节区间
+ *
+ * 只认单段 bytes=，三种写法：`bytes=start-end`、`bytes=start-`、后缀式 `bytes=-N`。
+ * 多段（`bytes=0-1,5-6`）、非 bytes 单位、格式不对、以及无法满足的区间一律返回
+ * null —— 调用方会按「忽略 Range」处理，回完整的 200。这是 RFC 9110 明确允许的
+ * （服务端 MAY ignore Range），比猜一个区间安全。
+ * @param {string} header 原始 Range 头
+ * @param {number} total 对象的完整字节数
+ * @returns {{start: number, end: number}|null} 闭区间，null 表示不支持或无法满足
+ */
+function resolveRange(header, total) {
+    if (total <= 0) return null;
+    const match = /^bytes=(\d*)-(\d*)$/.exec(String(header).trim());
+    if (!match) return null;
+
+    const [, rawStart, rawEnd] = match;
+    if (rawStart === '' && rawEnd === '') return null;
+
+    // 后缀式：要最后 N 个字节，N 大于总长时就是整个对象。
+    if (rawStart === '') {
+        const length = Number(rawEnd);
+        if (length <= 0) return null;
+        return { start: Math.max(0, total - length), end: total - 1 };
+    }
+
+    const start = Number(rawStart);
+    if (start >= total) return null;
+    const end = rawEnd === '' ? total - 1 : Math.min(Number(rawEnd), total - 1);
+    if (start > end) return null;
+    return { start, end };
 }
 
 /**
@@ -153,14 +201,104 @@ export class CachedStorage {
      * @returns {Promise<Object|null>} 不存在时为 null
      */
     async get(key, options = {}) {
-        if (options.range) return await this.storage.get(key, options);
+        // Range 请求：缓存里有完整对象就自己切片。后端在生产环境根本不认 Range
+        // （Apache 的 mod_deflate 压了响应，gzip 与字节范围互斥，它会忽略 Range
+        // 回完整 200），所以指望它分片等于每次拖拽都整文件回源一次。
+        if (options.range) {
+            const full = await this._lookup(key, true);
+            if (full) return this._rangeObject(full, options.range);
+            return await this._fetchAndStore(key, options);
+        }
 
-        const hit = await this._readEdge(key);
-        if (hit) return hit;
+        const hit = await this._lookup(key, false);
+        if (hit) return this._object(hit.body, 200, hit.headers.get('etag'), hit.headers, `HIT-${hit.tier}`);
 
-        const kvHit = await this._readKV(key);
-        if (kvHit) return kvHit;
+        return await this._fetchAndStore(key, options);
+    }
 
+    /**
+     * 依次查 L1、L2，L2 命中时顺手回填 L1
+     * @param {string} key 存储键
+     * @param {boolean} wantBytes true 时把内容读成字节（切 Range 必须持有完整对象），
+     *   false 时保持流式 —— 整文件转发不该在 Worker 里缓冲。
+     * @returns {Promise<{bytes?: Uint8Array, body?: ReadableStream, headers: Headers, tier: string}|null>}
+     */
+    async _lookup(key, wantBytes) {
+        if (this.edge) {
+            try {
+                const response = await this.edge.match(this._cacheKey(key));
+                if (response) {
+                    const headers = response.headers;
+                    return wantBytes
+                        ? { bytes: new Uint8Array(await response.arrayBuffer()), headers, tier: 'L1' }
+                        : { body: response.body, headers, tier: 'L1' };
+                }
+            } catch (error) {
+                console.error(`[Cache] L1 读取失败: ${error.message}`);
+            }
+        }
+
+        if (this.kv) {
+            try {
+                const { value, metadata } = await this.kv.getWithMetadata(key, { type: 'arrayBuffer' });
+                if (value) {
+                    const bytes = new Uint8Array(value);
+                    const headers = this._headersFromMetadata(metadata, bytes.byteLength);
+                    defer(this.ctx, this._writeEdge(key, bytes, headers));
+                    return wantBytes
+                        ? { bytes, headers, tier: 'L2' }
+                        : { body: new Response(bytes).body, headers, tier: 'L2' };
+                }
+            } catch (error) {
+                console.error(`[Cache] L2 读取失败: ${error.message}`);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 从缓存里的完整对象切出 Range 响应
+     *
+     * 无法满足或不支持的 Range 一律回完整的 200，**刻意不回 416**：
+     * ImageService.fetchImage 会给每个响应盖上 Cache-Control: public, max-age=86400，
+     * 而那行在 writeHttpMetadata 之后执行，这里覆盖不掉。一个被浏览器缓存一天、
+     * 又没有 Vary: Range 的 416 会让后续合法的 Range 请求也拿到 416，比忽略 Range
+     * 危险得多。要真正回 416 得先让 fetchImage 区分状态码来设缓存头，而它是三个
+     * 分支共用的文件，不在本层的改动范围内。
+     * @param {Object} full _lookup(key, true) 的结果
+     * @param {string} rangeHeader 原始 Range 头
+     * @returns {Object} 与 WebDAVStorage.get() 形状一致的返回对象
+     */
+    _rangeObject(full, rangeHeader) {
+        const total = full.bytes.byteLength;
+        const etag = full.headers.get('etag');
+        const tag = `HIT-${full.tier}`;
+        const headers = new Headers(full.headers);
+        // 能从缓存切片，Range 就是真的可用了。
+        headers.set('accept-ranges', 'bytes');
+
+        const resolved = resolveRange(rangeHeader, total);
+        if (!resolved) {
+            headers.set('content-length', String(total));
+            headers.delete('content-range');
+            return this._object(new Response(full.bytes).body, 200, etag, headers, tag);
+        }
+
+        const { start, end } = resolved;
+        const slice = full.bytes.subarray(start, end + 1);
+        headers.set('content-length', String(slice.byteLength));
+        headers.set('content-range', `bytes ${start}-${end}/${total}`);
+        return this._object(new Response(slice).body, 206, etag, headers, tag);
+    }
+
+    /**
+     * 回源，顺带在可以缓存时写入两层
+     * @param {string} key 存储键
+     * @param {Object} options 透传给内层，可能带 range
+     * @returns {Promise<Object|null>}
+     */
+    async _fetchAndStore(key, options) {
         const object = await this.storage.get(key, options);
         if (object === null) return null;
 
@@ -174,52 +312,21 @@ export class CachedStorage {
         const declared = headers.get('content-length');
         const oversize = declared !== null && Number(declared) > MAX_CACHE_BYTES;
 
-        // 只缓存完整的 200；其余（如后端忽略我们意图直接回 206）原样放行。
+        // 206 是部分内容，绝不能进按 URL 索引的缓存。200 则无论请求有没有带 Range，
+        // 按定义都是完整表示，照常缓存 —— 生产环境的后端忽略 Range 就走这一路，
+        // 这也是只被 Range 访问过的视频唯一的入缓存机会。
         if (object.status !== 200 || !object.body || oversize) {
+            // 进不了缓存就意味着分片只能靠后端，而后端并不认 Range，别谎称支持。
+            if (oversize) headers.delete('accept-ranges');
             return this._object(object.body, object.status || 200, object.httpEtag, headers, 'BYPASS');
         }
+
+        headers.set('accept-ranges', 'bytes');
 
         // tee 而不是先读完再返回：客户端首字节延迟不受写缓存影响。
         const [toCaller, toCache] = object.body.tee();
         defer(this.ctx, this._store(key, toCache, headers, object.httpEtag));
         return this._object(toCaller, 200, object.httpEtag, headers, 'MISS');
-    }
-
-    /**
-     * 查 L1
-     * @param {string} key 存储键
-     * @returns {Promise<Object|null>}
-     */
-    async _readEdge(key) {
-        if (!this.edge) return null;
-        try {
-            const response = await this.edge.match(this._cacheKey(key));
-            if (!response) return null;
-            return this._object(response.body, 200, response.headers.get('etag'), response.headers, 'HIT-L1');
-        } catch (error) {
-            console.error(`[Cache] L1 读取失败: ${error.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * 查 L2，命中时顺手回填 L1
-     * @param {string} key 存储键
-     * @returns {Promise<Object|null>}
-     */
-    async _readKV(key) {
-        if (!this.kv) return null;
-        try {
-            const { value, metadata } = await this.kv.getWithMetadata(key, { type: 'arrayBuffer' });
-            if (!value) return null;
-            const bytes = new Uint8Array(value);
-            const headers = this._headersFromMetadata(metadata, bytes.byteLength);
-            defer(this.ctx, this._writeEdge(key, bytes, headers));
-            return this._object(new Response(bytes).body, 200, headers.get('etag'), headers, 'HIT-L2');
-        } catch (error) {
-            console.error(`[Cache] L2 读取失败: ${error.message}`);
-            return null;
-        }
     }
 
     /**
