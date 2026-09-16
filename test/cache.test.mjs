@@ -154,29 +154,79 @@ test('Range 请求必定穿透到内层，且不读不写任何一层', async ()
     assert.equal(storage.calls.get[0].options.range, 'bytes=0-1');
 });
 
-test('缺少 Content-Length 时不写缓存但正常返回', async () => {
-    // 只写 content-type，刻意不给 content-length（部分 WebDAV 后端就是这样）。
-    const bare = inner();
-    bare.get = async (key, options = {}) => {
-        bare.calls.get.push({ key, options });
+test('缺少 Content-Length 仍然缓存，且补出正确的长度', async () => {
+    // 这正是生产环境的形状：Apache 的 mod_deflate 压了响应，workerd 透明解压后
+    // Content-Length 消失，ETag 尾部留下 -gzip。把它当缓存前提会让整层彻底失效。
+    const gzipped = inner();
+    gzipped.get = async (key, options = {}) => {
+        gzipped.calls.get.push({ key, options });
         return {
             body: new Response(BYTES).body,
             status: 200,
-            httpEtag: null,
-            writeHttpMetadata(target) { target.set('content-type', 'image/png'); },
+            httpEtag: 'W/"63eb-65b809d2d5188-gzip"',
+            writeHttpMetadata(target) {
+                target.set('content-type', 'image/avif');
+                target.set('last-modified', 'Tue, 15 Sep 2026 07:36:51 GMT');
+            },
         };
     };
-    const { cached, kv, cache, ctx } = build(bare);
+    const { cached, kv, cache, ctx } = build(gzipped);
 
-    const object = await cached.get(KEY);
-    assert.equal(metadataOf(object).get('X-Cache'), 'BYPASS');
-    assert.deepEqual(new Uint8Array(await new Response(object.body).arrayBuffer()), BYTES);
+    const first = await cached.get(KEY);
+    assert.equal(metadataOf(first).get('X-Cache'), 'MISS', '缺 Content-Length 不该退化成 BYPASS');
+    assert.deepEqual(new Uint8Array(await new Response(first.body).arrayBuffer()), BYTES);
+    await ctx.settle();
+    assert.equal(kv.store.size, 1);
+    assert.equal(cache.store.size, 1);
+
+    for (const [label, prepare] of [['L1', async () => {}], ['L2', async () => cache.store.clear()]]) {
+        await prepare();
+        const hit = await cached.get(KEY);
+        const headers = metadataOf(hit);
+        assert.equal(headers.get('X-Cache'), label === 'L1' ? 'HIT-L1' : 'HIT-L2', label);
+        assert.equal(headers.get('content-type'), 'image/avif', label);
+        // 后端没给长度，但缓存里字节是确定的，可以补出来 —— 比回源那次更完整。
+        assert.equal(headers.get('content-length'), String(BYTES.byteLength), label);
+        assert.equal(hit.httpEtag, 'W/"63eb-65b809d2d5188-gzip"', label);
+        assert.deepEqual(new Uint8Array(await new Response(hit.body).arrayBuffer()), BYTES, label);
+    }
+    assert.equal(gzipped.calls.get.length, 1, '三次读取只回源了一次');
+});
+
+test('声明的 Content-Length 超限时提前拒绝，不读 body', async () => {
+    const storage = inner({ headers: { 'content-length': String(11 * 1024 * 1024) } });
+    const { cached, kv, cache, ctx } = build(storage);
+
+    assert.equal(metadataOf(await cached.get(KEY)).get('X-Cache'), 'BYPASS');
     await ctx.settle();
     assert.equal(kv.store.size, 0);
     assert.equal(cache.store.size, 0);
+});
 
-    await cached.get(KEY);
-    assert.equal(bare.calls.get.length, 2, '没进缓存，下次仍要回源');
+test('后端谎报 Content-Length 时由字节计数器兜住', async () => {
+    // 声明 5 字节，实际吐 12 MB；快捷检查放过了，drain 必须拦下来。
+    const huge = new Uint8Array(12 * 1024 * 1024);
+    const liar = inner();
+    liar.get = async (key, options = {}) => {
+        liar.calls.get.push({ key, options });
+        return {
+            body: new Response(huge).body,
+            status: 200,
+            httpEtag: null,
+            writeHttpMetadata(target) {
+                target.set('content-type', 'image/png');
+                target.set('content-length', '5');
+            },
+        };
+    };
+    const { cached, kv, cache, ctx } = build(liar);
+
+    const object = await cached.get(KEY);
+    assert.equal(metadataOf(object).get('X-Cache'), 'MISS', '快捷检查按声明值放行');
+    assert.equal((await new Response(object.body).arrayBuffer()).byteLength, huge.byteLength, '客户端仍拿到完整内容');
+    await ctx.settle();
+    assert.equal(kv.store.size, 0, '真实体积超限，不该落盘');
+    assert.equal(cache.store.size, 0);
 });
 
 test('超过体积上限的文件不写缓存', async () => {
