@@ -1616,7 +1616,7 @@ export class ImageService {
             <div id="login-screen">
                 <div class="login-card">
                     <h2>管理鉴权</h2>
-                    <input type="password" id="token-input" placeholder="输入 AUTH_TOKEN" autocomplete="off" data-bwignore data-1p-ignore data-lpignore="true" data-form-type="other">
+                    <input type="password" id="token-input" placeholder="输入 AUTH_TOKEN">
                     <button onclick="login()">进入管理后台</button>
                     <p id="login-error" style="color: var(--danger); font-size: 0.875rem; margin-top: 1rem; display: none;"></p>
                 </div>
@@ -1745,7 +1745,9 @@ export class ImageService {
 
         function showDashboard() {
             // 直接摘掉登录节点而不是 display:none：密码管理器（Bitwarden 等）会持续扫描
-            // DOM 里残留的 password 字段，对一个零尺寸的隐藏输入框弹出的填充浮层会定位到左上角
+            // DOM 里残留的 password 字段，对一个零尺寸的隐藏输入框弹出的填充浮层会定位到左上角。
+            // 刻意不在输入框上加 data-bwignore 之类的忽略属性——那是「彻底跳过」语义，
+            // 会连登录页上正常的填充一起关掉，而摘节点只影响登录之后。
             const loginScreen = document.getElementById('login-screen');
             if (loginScreen) loginScreen.remove();
             document.getElementById('dashboard').style.display = 'block';
