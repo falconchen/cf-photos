@@ -137,21 +137,152 @@ test('L1 失效后命中 L2 并回填 L1', async () => {
     assert.equal(cache.store.size, 1, 'L2 命中应回填 L1');
 });
 
-test('Range 请求必定穿透到内层，且不读不写任何一层', async () => {
+test('后端回 206 时原样透传，且绝不入缓存', async () => {
+    // 非 gzip 的后端（本地 wrangler dev 那条链路）会真的分片。206 是部分内容，
+    // 放进按 URL 索引的缓存会污染整文件条目。
     const storage = inner({ status: 206, headers: { 'content-range': 'bytes 0-1/5' } });
     const { cached, kv, cache, ctx } = build(storage);
 
     const first = await cached.get(KEY, { range: 'bytes=0-1' });
     await ctx.settle();
     assert.equal(first.status, 206);
-    assert.equal(metadataOf(first).get('X-Cache'), null, 'Range 响应不该带 X-Cache');
     assert.equal(metadataOf(first).get('content-range'), 'bytes 0-1/5');
+    assert.equal(metadataOf(first).get('X-Cache'), 'BYPASS');
     assert.equal(kv.store.size, 0);
     assert.equal(cache.store.size, 0);
+    assert.equal(storage.calls.get[0].options.range, 'bytes=0-1', 'Range 必须原样带给后端');
+});
 
-    await cached.get(KEY, { range: 'bytes=2-3' });
-    assert.equal(storage.calls.get.length, 2, '每次 Range 都要打后端');
-    assert.equal(storage.calls.get[0].options.range, 'bytes=0-1');
+test('后端忽略 Range 回完整 200 时照常入缓存', async () => {
+    // 这是生产环境的形状：mod_deflate 压了响应，Apache 忽略 Range。200 按定义是
+    // 完整表示，可以缓存 —— 这也是只被 Range 访问过的视频唯一的入缓存机会。
+    const storage = inner();
+    const { cached, kv, cache, ctx } = build(storage);
+
+    const first = await cached.get(KEY, { range: 'bytes=0-1' });
+    assert.equal(first.status, 200);
+    assert.equal(metadataOf(first).get('X-Cache'), 'MISS');
+    assert.deepEqual(new Uint8Array(await new Response(first.body).arrayBuffer()), BYTES, '客户端拿到完整内容');
+    await ctx.settle();
+    assert.equal(kv.store.size, 1, '应已入缓存');
+    assert.equal(cache.store.size, 1);
+
+    // 下一次 seek 就该由本层切片，不再回源。
+    const second = await cached.get(KEY, { range: 'bytes=1-3' });
+    assert.equal(second.status, 206);
+    assert.equal(metadataOf(second).get('content-range'), 'bytes 1-3/5');
+    assert.equal(storage.calls.get.length, 1, '第二次 seek 不该回源');
+});
+
+test('从缓存切出真正的 206', async () => {
+    const storage = inner();
+    const { cached, cache, ctx } = build(storage);
+
+    await new Response((await cached.get(KEY)).body).arrayBuffer();
+    await ctx.settle();
+
+    for (const [label, prepare] of [['L1', async () => {}], ['L2', async () => cache.store.clear()]]) {
+        await prepare();
+        const object = await cached.get(KEY, { range: 'bytes=1-3' });
+        const headers = metadataOf(object);
+        assert.equal(object.status, 206, label);
+        assert.equal(headers.get('X-Cache'), label === 'L1' ? 'HIT-L1' : 'HIT-L2', label);
+        assert.equal(headers.get('content-range'), 'bytes 1-3/5', label);
+        assert.equal(headers.get('content-length'), '3', label);
+        assert.equal(headers.get('accept-ranges'), 'bytes', label);
+        assert.deepEqual(
+            new Uint8Array(await new Response(object.body).arrayBuffer()),
+            BYTES.slice(1, 4), label
+        );
+    }
+    assert.equal(storage.calls.get.length, 1, '三次读取只回源了一次');
+});
+
+test('Range 的三种写法都能正确切片', async () => {
+    const storage = inner();
+    const { cached, ctx } = build(storage);
+    await new Response((await cached.get(KEY)).body).arrayBuffer();
+    await ctx.settle();
+
+    // BYTES 是 [1,2,3,4,5]，共 5 字节。
+    const cases = [
+        ['bytes=0-0', 'bytes 0-0/5', [1]],
+        ['bytes=2-4', 'bytes 2-4/5', [3, 4, 5]],
+        ['bytes=2-', 'bytes 2-4/5', [3, 4, 5]],          // 开放上界
+        ['bytes=-2', 'bytes 3-4/5', [4, 5]],             // 后缀式：最后 2 字节
+        ['bytes=-99', 'bytes 0-4/5', [1, 2, 3, 4, 5]],   // 后缀长度超过总长 = 整个对象
+        ['bytes=0-99', 'bytes 0-4/5', [1, 2, 3, 4, 5]],  // 上界截断到末尾
+    ];
+
+    for (const [header, expectedRange, expectedBytes] of cases) {
+        const object = await cached.get(KEY, { range: header });
+        assert.equal(object.status, 206, header);
+        assert.equal(metadataOf(object).get('content-range'), expectedRange, header);
+        assert.deepEqual(
+            new Uint8Array(await new Response(object.body).arrayBuffer()),
+            new Uint8Array(expectedBytes), header
+        );
+    }
+});
+
+test('不支持或无法满足的 Range 回完整 200，而不是 416', async () => {
+    // 刻意不回 416：fetchImage 会给每个响应盖上 max-age=86400 且本层覆盖不掉，
+    // 一个被缓存一天的 416 会让后续合法 Range 也拿到 416。RFC 9110 允许忽略 Range。
+    const storage = inner();
+    const { cached, ctx } = build(storage);
+    await new Response((await cached.get(KEY)).body).arrayBuffer();
+    await ctx.settle();
+
+    const cases = [
+        'bytes=0-1,3-4',   // 多段
+        'bytes=99-',       // 起点越界，不可满足
+        'bytes=4-2',       // 起点大于终点
+        'bytes=-0',        // 后缀长度为 0
+        'bytes=-',         // 两侧都空
+        'items=0-1',       // 非 bytes 单位
+        'bytes=abc-def',   // 格式不对
+        '',                // 空串（options.range 为假值，等同于无 Range）
+    ];
+
+    for (const header of cases) {
+        const object = await cached.get(KEY, { range: header });
+        assert.equal(object.status, 200, header);
+        assert.equal(metadataOf(object).get('content-range'), null, header);
+        assert.equal(metadataOf(object).get('content-length'), '5', header);
+        assert.deepEqual(new Uint8Array(await new Response(object.body).arrayBuffer()), BYTES, header);
+    }
+    assert.equal(storage.calls.get.length, 1, '全部由缓存应答，没有一次回源');
+});
+
+test('超过体积上限的对象不谎称支持 Range', async () => {
+    // 进不了缓存就只能靠后端分片，而后端并不认 Range。
+    const storage = inner({ headers: { 'content-length': String(11 * 1024 * 1024) } });
+    const { cached, ctx } = build(storage);
+
+    const object = await cached.get(KEY, { range: 'bytes=0-1' });
+    await ctx.settle();
+    const headers = metadataOf(object);
+    assert.equal(headers.get('X-Cache'), 'BYPASS');
+    assert.equal(headers.get('accept-ranges'), null, 'accept-ranges 必须被摘掉');
+});
+
+test('可缓存的对象会声明 accept-ranges', async () => {
+    const bare = inner();
+    // 后端被 gzip 之后不回 accept-ranges，本层要自己补上。
+    bare.get = async (key, options = {}) => {
+        bare.calls.get.push({ key, options });
+        return {
+            body: new Response(BYTES).body,
+            status: 200,
+            httpEtag: null,
+            writeHttpMetadata(target) { target.set('content-type', 'video/mp4'); },
+        };
+    };
+    const { cached, ctx } = build(bare);
+
+    assert.equal(metadataOf(await cached.get(KEY)).get('accept-ranges'), 'bytes', 'MISS');
+    await ctx.settle();
+    assert.equal(metadataOf(await cached.get(KEY)).get('accept-ranges'), 'bytes', 'HIT-L1');
 });
 
 test('缺少 Content-Length 仍然缓存，且补出正确的长度', async () => {
