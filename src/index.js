@@ -4,6 +4,7 @@
  */
 
 import { WebDAVStorage } from './services/WebDAVStorage.js';
+import { CachedStorage } from './services/CachedStorage.js';
 import { ImageService } from './services/ImageService.js';
 import { McpService } from './services/McpService.js';
 import { OAuthService } from './services/OAuthService.js';
@@ -73,7 +74,10 @@ export default {
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         const path = url.pathname;
-        const imageService = new ImageService(new WebDAVStorage(env), env);
+        // 媒体读取套一层缓存。CachedStorage 与 WebDAVStorage 接口一致，ImageService
+        // 感知不到区别；没有 PHOTO_CACHE 绑定时它退化成纯透传，行为与加缓存前相同。
+        const storage = new CachedStorage(new WebDAVStorage(env), env, { ctx, origin: url.origin });
+        const imageService = new ImageService(storage, env);
 
         // OAuth 与它的发现文档：claude.ai 网页版 / 手机端的自定义连接器不支持静态
         // Authorization 头，只认 OAuth，这套端点专门为它们存在。放在最前面是因为

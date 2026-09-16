@@ -12,3 +12,12 @@ TIMEZONE_OFFSET = "8"
 # Free/Pro 100、Business 200、Enterprise 默认 500（可自助调到 5120）。
 # 默认 95 是给 Free/Pro 的 100 留余量；换套餐时改这里即可。
 MAX_UPLOAD_MB = "95"
+
+# 媒体读取缓存的 L2（全球一份）。见 src/services/CachedStorage.js。
+# 纯缓存，不是数据源：里面每个条目都能从 WebDAV 重新取回，随时可以整个清空或重建。
+# 绑定缺失时缓存层自动退化成对 WebDAV 的纯透传，不会报错。
+# 换账号或另起一套部署时，用 npx wrangler kv namespace create PHOTO_CACHE 重建并替换下面的 id。
+# wrangler dev 不看这个 id，本地会自动起一个同名的替身。
+[[kv_namespaces]]
+binding = "PHOTO_CACHE"
+id = "25948693abef432290d9c001040916ad"
