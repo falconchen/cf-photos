@@ -167,9 +167,15 @@ export class CachedStorage {
         const headers = new Headers();
         object.writeHttpMetadata(headers);
 
+        // Content-Length 只是提前拒绝大文件的快捷方式，**不是**缓存的前提。后端
+        // （teracloud 的 Apache 开了 mod_deflate）会 gzip 响应，workerd 透明解压后
+        // 这个头就没了 —— 实测生产环境每个文件都缺它，ETag 尾部的 -gzip 是证据。
+        // 真正的体积约束是 drain() 里边读边数的那个计数器，头缺失或撒谎都照样兜住。
+        const declared = headers.get('content-length');
+        const oversize = declared !== null && Number(declared) > MAX_CACHE_BYTES;
+
         // 只缓存完整的 200；其余（如后端忽略我们意图直接回 206）原样放行。
-        const length = Number(headers.get('content-length'));
-        if (object.status !== 200 || !object.body || !Number.isFinite(length) || length <= 0 || length > MAX_CACHE_BYTES) {
+        if (object.status !== 200 || !object.body || oversize) {
             return this._object(object.body, object.status || 200, object.httpEtag, headers, 'BYPASS');
         }
 
@@ -247,8 +253,14 @@ export class CachedStorage {
         const stored = new Headers();
         for (const name of METADATA_HEADERS) {
             // content-range 属于 206，不该出现在整文件条目里。
-            if (name !== 'content-range' && headers.has(name)) stored.set(name, headers.get(name));
+            // content-length 单独处理：见下。
+            if (name !== 'content-range' && name !== 'content-length' && headers.has(name)) {
+                stored.set(name, headers.get(name));
+            }
         }
+        // 长度一律以实际读到的字节数为准，不抄后端那个头 —— 它可能缺失（被 gzip
+        // 过又由 workerd 解压）也可能撒谎，而这里的数字是确定的。
+        stored.set('content-length', String(bytes.byteLength));
         if (etag) stored.set('etag', etag);
 
         await Promise.all([this._writeEdge(key, bytes, stored), this._writeKV(key, bytes, stored)]);
