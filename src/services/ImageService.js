@@ -1616,7 +1616,7 @@ export class ImageService {
             <div id="login-screen">
                 <div class="login-card">
                     <h2>管理鉴权</h2>
-                    <input type="password" id="token-input" placeholder="输入 AUTH_TOKEN">
+                    <input type="password" id="token-input" placeholder="输入 AUTH_TOKEN" autocomplete="off" data-bwignore data-1p-ignore data-lpignore="true" data-form-type="other">
                     <button onclick="login()">进入管理后台</button>
                     <p id="login-error" style="color: var(--danger); font-size: 0.875rem; margin-top: 1rem; display: none;"></p>
                 </div>
@@ -1744,7 +1744,10 @@ export class ImageService {
         }
 
         function showDashboard() {
-            document.getElementById('login-screen').style.display = 'none';
+            // 直接摘掉登录节点而不是 display:none：密码管理器（Bitwarden 等）会持续扫描
+            // DOM 里残留的 password 字段，对一个零尺寸的隐藏输入框弹出的填充浮层会定位到左上角
+            const loginScreen = document.getElementById('login-screen');
+            if (loginScreen) loginScreen.remove();
             document.getElementById('dashboard').style.display = 'block';
             document.getElementById('header-actions').style.display = 'flex'; // 修正为 flex 以配合新增按钮
             loadDirOptions('year');
