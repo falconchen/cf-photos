@@ -10,6 +10,8 @@
  * 等现代纪元客户端普及后再补，不要因为看到新版规范就以为这里写错了。
  */
 
+import { sniffImageMime } from './WebpConverter.js';
+
 // 对外声明的协议版本，以及能原样回显的版本
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
@@ -459,7 +461,7 @@ export class McpService {
 
         // 没给 MIME 就按文件头识别
         if (!contentType) {
-            contentType = this._sniffMime(buffer);
+            contentType = sniffImageMime(buffer);
         }
 
         if (contentType === 'image/svg+xml') {
@@ -476,37 +478,6 @@ export class McpService {
         }
 
         return { buffer: buffer, contentType: contentType, extension: extension };
-    }
-
-    /**
-     * 按文件头识别常见图片格式
-     * @param {Uint8Array} bytes 图片字节
-     * @returns {string} MIME 类型，识别不出时为空串
-     */
-    _sniffMime(bytes) {
-        const startsWith = (...signature) =>
-            bytes.length >= signature.length && signature.every((byte, i) => bytes[i] === byte);
-
-        if (startsWith(0x89, 0x50, 0x4E, 0x47)) return 'image/png';
-        if (startsWith(0xFF, 0xD8, 0xFF)) return 'image/jpeg';
-        if (startsWith(0x47, 0x49, 0x46, 0x38)) return 'image/gif';
-        if (startsWith(0x42, 0x4D)) return 'image/bmp';
-        if (startsWith(0x00, 0x00, 0x01, 0x00)) return 'image/x-icon';
-
-        // RIFF....WEBP
-        if (startsWith(0x52, 0x49, 0x46, 0x46) && bytes.length >= 12 &&
-            bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
-            return 'image/webp';
-        }
-
-        // ISO-BMFF：....ftyp<brand>，avif / heic 共用这个容器
-        if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
-            const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
-            if (brand === 'avif' || brand === 'avis') return 'image/avif';
-            if (brand.startsWith('hei') || brand.startsWith('mif')) return 'image/heic';
-        }
-
-        return '';
     }
 
     /**

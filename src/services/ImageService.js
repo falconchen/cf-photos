@@ -3,6 +3,8 @@
  * 封装与 WebDAV 存储交互的逻辑，遵循单一职责原则
  */
 
+import { WebpConverter, WEBP_MAX_INPUT_BYTES } from './WebpConverter.js';
+
 // Base60 字符表：0-9、A-Z、a-x（去掉 y、z 以凑满 60 个字符）
 const BASE60 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx';
 
@@ -13,6 +15,9 @@ const DEFAULT_TIMEZONE_OFFSET = 8;
 // Enterprise 默认 500 MB 且可自助调到 5 GB），超限的请求根本到不了 Worker。
 // 默认按 Free/Pro 的 100 MB 留出余量取 95，可用 MAX_UPLOAD_MB 覆盖。
 const DEFAULT_MAX_UPLOAD_MB = 95;
+
+// 自动转 WebP 时的编码质量（1–100），可用 WEBP_QUALITY 覆盖
+const DEFAULT_WEBP_QUALITY = 85;
 
 // MIME → 扩展名映射。提到模块作用域是为了让「按扩展名反查 MIME」与它共用同一张表，
 // 否则两张表迟早会漂移。
@@ -116,6 +121,48 @@ function parseTimezoneOffset(value) {
 }
 
 /**
+ * 解析自动转 WebP 开关，默认关闭
+ * 只认 true/1/yes/on 与 false/0/no/off（不区分大小写），其他值按关闭处理并告警，
+ * 免得一个拼错的值悄悄把转码打开。
+ * @param {string|boolean|undefined} value 环境变量 AUTO_WEBP 的原始值
+ * @returns {boolean}
+ */
+function parseAutoWebp(value) {
+    if (value === undefined || value === null || value === '') {
+        return false;
+    }
+    if (typeof value === 'boolean') {
+        return value;
+    }
+
+    const normalized = String(value).trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+
+    console.warn(`[Config] AUTO_WEBP 非法："${value}"，按关闭处理`);
+    return false;
+}
+
+/**
+ * 解析自动转 WebP 的编码质量，非法值回退到默认值
+ * @param {string|number|undefined} value 环境变量 WEBP_QUALITY 的原始值
+ * @returns {number} 1–100 的整数
+ */
+function parseWebpQuality(value) {
+    if (value === undefined || value === null || value === '') {
+        return DEFAULT_WEBP_QUALITY;
+    }
+
+    const quality = Number(value);
+    if (!Number.isInteger(quality) || quality < 1 || quality > 100) {
+        console.warn(`[Config] WEBP_QUALITY 非法："${value}"，回退到 ${DEFAULT_WEBP_QUALITY}`);
+        return DEFAULT_WEBP_QUALITY;
+    }
+
+    return quality;
+}
+
+/**
  * 将数值编码为定长 Base60 字符串（高位在前，不足补 '0'）
  * @param {number} value 待编码的非负整数
  * @param {number} length 输出长度
@@ -183,12 +230,19 @@ export class ImageService {
     /**
      * 构造函数
      * @param {WebDAVStorage} storage WebDAV 存储对象
-     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET 与 MAX_UPLOAD_MB
+     * @param {Object} [env={}] 环境变量，用于读取 TIMEZONE_OFFSET、MAX_UPLOAD_MB、
+     *        AUTO_WEBP、WEBP_QUALITY、WEBP_CONVERTER_URL 与 WEBP_CONVERTER_TOKEN
      */
     constructor(storage, env = {}) {
         this.storage = storage;
         this.timezoneOffset = parseTimezoneOffset(env?.TIMEZONE_OFFSET);
         this.maxUploadMB = parseMaxUploadMB(env?.MAX_UPLOAD_MB);
+        this.webp = new WebpConverter({
+            enabled: parseAutoWebp(env?.AUTO_WEBP),
+            quality: parseWebpQuality(env?.WEBP_QUALITY),
+            endpoint: env?.WEBP_CONVERTER_URL,
+            token: env?.WEBP_CONVERTER_TOKEN
+        });
     }
 
     /**
@@ -365,11 +419,13 @@ export class ImageService {
             }
 
             // 确定后缀名：优先取原始文件名的后缀，其次由 MIME 类型推断
-            const extension = this._extensionFrom(originalFilename, contentType);
+            let extension = this._extensionFrom(originalFilename, contentType);
             console.log(`[Debug] 推断后缀名: "${extension}"`);
 
             const risky = this._rejectRiskyUpload(contentType, extension);
             if (risky) return this._unsupportedType(risky);
+
+            ({ buffer: fileBuffer, contentType, extension } = await this._maybeWebp(fileBuffer, contentType, extension));
 
             console.log(`[Debug] 最终确定的后缀名: "${extension}", 存储使用的 Content-Type: "${contentType || 'application/octet-stream'}"`);
 
@@ -418,6 +474,7 @@ export class ImageService {
      * 供 uploadWithBase64 与 MCP 工具共用。注意 contentType 与 extension 必须由调用方
      * 先解析好再传进来：uploadWithBase64 的兜底是 image/jpeg，uploadFormData 的兜底是
      * application/octet-stream 且优先用原文件名的后缀，把兜底逻辑挪进这里会悄悄改掉其中一条。
+     * 自动转 WebP 发生在这里（开关打开时），因此返回的 contentType/size 可能与入参不同。
      * @param {string} origin 形如 https://img.example.com，用于拼接绝对 URL
      * @param {ArrayBuffer|Uint8Array} buffer 图片字节
      * @param {string} contentType 存储用的 MIME 类型，调用方须自行兜底
@@ -426,6 +483,8 @@ export class ImageService {
      * @throws {Error} 存储失败时抛出，由调用方决定如何呈现
      */
     async uploadBuffer(origin, buffer, contentType, extension = '') {
+        ({ buffer, contentType, extension } = await this._maybeWebp(buffer, contentType, extension));
+
         const path = this._generateRandomPath(extension);
         await this.storage.put(path.slice(1), buffer, {
             httpMetadata: { contentType },
@@ -531,10 +590,20 @@ export class ImageService {
      */
     async uploadWithAutoPath(request, body, contentType, filename = '') {
         try {
-            const extension = this._extensionFrom(filename, contentType);
+            let extension = this._extensionFrom(filename, contentType);
 
             const risky = this._rejectRiskyUpload(contentType, extension);
             if (risky) return this._unsupportedType(risky);
+
+            // 这条路径本来完全不缓冲。只有在可能转 WebP、且 Content-Length 表明体积有界时
+            // 才把请求体读进内存；分块传输或超过上限的照旧直接透传，大视频不受影响。
+            if (this.webp.accepts(contentType, extension)) {
+                const declared = Number(request.headers.get('Content-Length'));
+                if (declared > 0 && declared <= WEBP_MAX_INPUT_BYTES) {
+                    const buffered = await new Response(body).arrayBuffer();
+                    ({ buffer: body, contentType, extension } = await this._maybeWebp(buffered, contentType, extension));
+                }
+            }
 
             const path = this._generateRandomPath(extension);
             const key = path.slice(1);
@@ -2719,6 +2788,20 @@ export class ImageService {
         const slash = key.lastIndexOf('/');
         const dot = key.lastIndexOf('.');
         return dot > slash ? key.slice(dot).toLowerCase() : '';
+    }
+
+    /**
+     * 开关打开时尝试把图片转成 WebP，转不了就原样返回
+     * 转成功时后缀强制改成 .webp：_extensionFrom 优先用文件名后缀，不改的话 cat.jpg
+     * 会存成装着 WebP 字节的 .jpg，而后端按后缀回 Content-Type，配上 nosniff 图就碎了。
+     * @param {ArrayBuffer|Uint8Array} buffer 原图字节
+     * @param {string} contentType 原 MIME
+     * @param {string} extension 原后缀（含点）
+     * @returns {Promise<{buffer: ArrayBuffer|Uint8Array, contentType: string, extension: string}>}
+     */
+    async _maybeWebp(buffer, contentType, extension) {
+        const converted = await this.webp.convert(buffer);
+        return converted || { buffer, contentType, extension };
     }
 
     /**

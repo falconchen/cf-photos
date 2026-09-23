@@ -7,6 +7,7 @@
 - 图片、视频、音频都能存。读取接口支持 `Range`，`<video>` / `<audio>` 可以拖拽定位
 - 四条上传路径：multipart 表单、JSON Base64、裸二进制、`PUT /i/...`。大文件走流式，不占 Worker 内存
 - 路径按日期自动生成：`/i/YYYY/MM/DD/<时间序 ID>`，时区可配
+- 可选：上传时把 JPEG / PNG / HEIC 自动转成 WebP（`AUTO_WEBP`，借助自托管的 imaginary 服务，默认关闭）
 - 管理后台：列表、年 / 月 / 日三级筛选、文件选择 / 拖拽 / 粘贴上传、删除与多选批量删除（Shift 连选、Esc 取消）
 - 会被浏览器当网页打开的类型一律拒收，读取响应带 CSP 与 `nosniff`，封掉存储型 XSS
 - `POST /mcp` 暴露一个 `upload_image` 工具，Claude Code、claude.ai、ChatGPT 都能接
@@ -38,6 +39,8 @@
 > 更上层还有 Cloudflare 按账户套餐在边缘强制的单次请求体上限，超限请求根本到不了 Worker。后台会在上传前按 `MAX_UPLOAD_MB`（`wrangler.toml` 中配置，默认 95）预检并直接给出提示，换套餐时改这个值即可。
 >
 > 20 MB 覆盖除 ProRAW 外的全部 iPhone 原图（12MP HEIC 约 2~4 MB、48MP HEIF Max 约 6~8 MB、全景图 10~25 MB）。ProRAW（12MP 约 25 MB、48MP 约 75 MB）**只能走流式上传**。
+
+> **自动转 WebP**：打开 `AUTO_WEBP` 后，前三种方式（以及 MCP 工具）上传的 JPEG / PNG / HEIC 会转成 WebP 再存，返回的 `url` 以 `.webp` 结尾，文件名带的原后缀会被改掉。`PUT /i/...` 指定了路径，永远原样存。只有转出来更小才替换；GIF、WebP、SVG、AVIF 等不转。裸二进制上传只在带 `Content-Length` 且不超过 20 MB 时才转，否则照旧流式透传。转换服务不可用、超时或出错时存原图，上传本身不会失败。
 
 #### 1. Multipart 表单上传（推荐，uPic 默认）
 
@@ -309,6 +312,17 @@ curl -X POST http://127.0.0.1:8787/mcp \
 `AUTH_TOKEN` 保护应用的上传、列表和删除接口，与 WebDAV 密码相互独立。WebDAV 凭据只由 Worker 发送给配置的服务，不发给浏览器。管理 Token 请务必设置。
 
 `TIMEZONE_OFFSET` 决定上传路径 `/i/YYYY/MM/DD/` 的日期和文件名中的时间，默认 `8`（东八区），支持 `5.5`、`-3` 这类取值（范围 -12 ~ 14），留空或非法时回退到 8。它不是敏感信息，配置在 `wrangler.toml` 的 `[vars]` 里，改完重新 `npm run deploy` 生效；本地可在 `.dev.vars` 中覆盖。Workers 运行时时区恒为 UTC，所有本地时间都由该偏移换算得出。
+
+`AUTO_WEBP` 控制上传时是否把 JPEG / PNG / HEIC 自动转成 WebP，默认 `false`；认 `true` / `1` / `yes` / `on`，拼错按关闭处理并在日志告警。`WEBP_QUALITY` 是编码质量，1~100，默认 `85`。两者配置在 `wrangler.toml` 的 `[vars]` 里，本地可在 `.dev.vars` 中覆盖。
+
+转码由你自己部署的 [imaginary](https://github.com/h2non/imaginary) 服务完成（Docker 一键起，只开 `convert` 接口并强制 API Key）。打开 `AUTO_WEBP` 前还要配置两个 secret：
+
+```bash
+npx wrangler secret put WEBP_CONVERTER_URL     # imaginary 的根地址，如 https://webp.example.com，必须 HTTPS
+npx wrangler secret put WEBP_CONVERTER_TOKEN   # imaginary 的 API Key
+```
+
+转换时会清掉 GPS 等 EXIF，照片方向先按 EXIF 摆正。转换服务连不上、超时或返回 5xx 时存原图，并在 60 秒内不再尝试，免得每次上传都等超时。已有的存量文件不会被转换。本地调试时 `WEBP_CONVERTER_URL` 可以写 `http://127.0.0.1:8088`（只有本机回环地址允许 http）。
 
 ### 部署
 

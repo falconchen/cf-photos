@@ -13,6 +13,18 @@ TIMEZONE_OFFSET = "8"
 # 默认 95 是给 Free/Pro 的 100 留余量；换套餐时改这里即可。
 MAX_UPLOAD_MB = "95"
 
+# 上传时自动把 JPEG / PNG / HEIC 转成 WebP（默认关闭）。见 src/services/WebpConverter.js。
+# 转码由自托管的 imaginary 服务完成，打开前还要配置两个 secret（不写在这里）：
+#   npx wrangler secret put WEBP_CONVERTER_URL     # 如 https://webp.example.com，必须 HTTPS
+#   npx wrangler secret put WEBP_CONVERTER_TOKEN   # imaginary 的 API Key
+# 转换服务不可用、超时、转出来比原图大、类型不在白名单（webp/gif/svg/avif 等）、
+# 流式上传缺 Content-Length 或超过 20 MB 时一律存原图，上传不会失败。
+# PUT /i/... 指定路径的上传永远不转。
+AUTO_WEBP = "false"
+
+# 自动转 WebP 的编码质量，1–100，非法时回退到 85。
+WEBP_QUALITY = "85"
+
 # 媒体读取缓存的 L2（全球一份）。见 src/services/CachedStorage.js。
 # 纯缓存，不是数据源：里面每个条目都能从 WebDAV 重新取回，随时可以整个清空或重建。
 # 绑定缺失时缓存层自动退化成对 WebDAV 的纯透传，不会报错。
