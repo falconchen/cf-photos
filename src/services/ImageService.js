@@ -1685,6 +1685,331 @@ export class ImageService {
                 text-align: center;
             }
         }
+
+        /* ===== 画廊看图器 =====
+           看图时背景一律用深色，不跟随主题：浅色底会把照片边缘的暗部吃掉 */
+        .viewer {
+            position: fixed;
+            inset: 0;
+            z-index: 2500;
+            display: none;
+            flex-direction: column;
+            background: #020617;
+            color: #f8fafc;
+            overscroll-behavior: contain;
+        }
+
+        .viewer.open {
+            display: flex;
+        }
+
+        /* 当前图片放大模糊后压暗，作为氛围背景 */
+        .viewer-backdrop {
+            position: absolute;
+            inset: -10%;
+            background-size: cover;
+            background-position: center;
+            filter: blur(48px) brightness(0.28) saturate(1.2);
+            transition: background-image 0.3s;
+            pointer-events: none;
+        }
+
+        .viewer-topbar {
+            position: relative;
+            z-index: 2;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1.25rem;
+            background: rgba(2, 6, 23, 0.72);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(12px);
+        }
+
+        .viewer-title {
+            min-width: 0;
+            text-align: center;
+        }
+
+        .viewer-name {
+            font-size: 1rem;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .viewer-counter {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .viewer-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.25rem;
+        }
+
+        .viewer button,
+        .viewer a.viewer-icon-btn {
+            width: auto;
+            padding: 0;
+            border: none;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+            transition: background-color 0.15s, opacity 0.15s;
+        }
+
+        .viewer svg {
+            width: 22px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .viewer .viewer-back {
+            justify-self: start;
+            gap: 0.5rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 0.6rem;
+            background: rgba(255, 255, 255, 0.06);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+
+        .viewer .viewer-back svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .viewer .viewer-icon-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 0.6rem;
+        }
+
+        .viewer .viewer-back:hover,
+        .viewer .viewer-icon-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .viewer-stage {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        .viewer-stage.draggable { cursor: grab; }
+        .viewer-stage.dragging { cursor: grabbing; }
+
+        /* 图片绝对居中，缩放、平移、旋转全部走 transform */
+        .viewer-media {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            max-width: none;
+            transform-origin: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            -webkit-user-drag: none;
+        }
+
+        .viewer-media.animate {
+            transition: transform 0.2s ease;
+        }
+
+        /* 音视频不参与缩放，按舞台尺寸自然适配 */
+        .viewer-stage video.viewer-av,
+        .viewer-stage audio.viewer-av {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            max-width: calc(100% - 2rem);
+            max-height: calc(100% - 2rem);
+            outline: none;
+        }
+
+        .viewer-stage audio.viewer-av {
+            width: min(480px, calc(100% - 2rem));
+        }
+
+        .viewer-spinner {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 40px;
+            height: 40px;
+            margin: -20px 0 0 -20px;
+            border: 3px solid rgba(255, 255, 255, 0.15);
+            border-top-color: #60a5fa;
+            border-radius: 50%;
+            animation: viewer-spin 0.8s linear infinite;
+            display: none;
+            pointer-events: none;
+        }
+
+        .viewer-spinner.show { display: block; }
+
+        @keyframes viewer-spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .viewer-error {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: #94a3b8;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .viewer .viewer-nav {
+            position: absolute;
+            top: 50%;
+            z-index: 2;
+            width: 64px;
+            height: 84px;
+            margin-top: -42px;
+            border-radius: 0.9rem;
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .viewer .viewer-nav:hover {
+            background: rgba(30, 41, 59, 0.85);
+        }
+
+        .viewer .viewer-nav:disabled {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .viewer-prev { left: 1.5rem; }
+        .viewer-next { right: 1.5rem; }
+
+        .viewer-toolbar {
+            position: absolute;
+            left: 50%;
+            bottom: 1.5rem;
+            z-index: 2;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.4rem 0.6rem;
+            border-radius: 0.9rem;
+            background: rgba(30, 41, 59, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(12px);
+        }
+
+        .viewer-toolbar.hidden {
+            display: none;
+        }
+
+        .viewer .viewer-toolbar button {
+            width: 44px;
+            height: 40px;
+            border-radius: 0.5rem;
+        }
+
+        .viewer .viewer-toolbar button:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .viewer .viewer-toolbar button:disabled {
+            opacity: 0.35;
+            pointer-events: none;
+        }
+
+        .viewer .viewer-toolbar svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .viewer .viewer-zoom-label {
+            width: 64px;
+            font-size: 0.9rem;
+            color: #60a5fa;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .viewer-notice {
+            position: absolute;
+            left: 50%;
+            bottom: 5.5rem;
+            z-index: 3;
+            max-width: min(70vw, 620px);
+            padding: 0.5rem 0.9rem;
+            border-radius: 0.6rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(3, 11, 25, 0.86);
+            font-size: 0.8rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+
+        .viewer-notice.show { opacity: 1; }
+
+        @media (max-width: 640px) {
+            .viewer-topbar {
+                padding: 0.5rem 0.75rem;
+                gap: 0.5rem;
+            }
+
+            .viewer .viewer-back {
+                padding: 0.5rem;
+            }
+
+            /* 小屏只留箭头，文字让给标题 */
+            .viewer .viewer-back span {
+                display: none;
+            }
+
+            .viewer-name {
+                font-size: 0.9rem;
+            }
+
+            .viewer .viewer-icon-btn {
+                width: 40px;
+                height: 40px;
+            }
+
+            /* 触屏靠左右滑动翻页，箭头缩小避免挡住画面 */
+            .viewer .viewer-nav {
+                width: 40px;
+                height: 56px;
+                margin-top: -28px;
+            }
+
+            .viewer-prev { left: 0.5rem; }
+            .viewer-next { right: 0.5rem; }
+
+            .viewer-toolbar {
+                bottom: max(1rem, env(safe-area-inset-bottom));
+            }
+
+            .viewer .viewer-toolbar button {
+                width: 40px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1792,6 +2117,58 @@ export class ImageService {
                     <input type="file" id="file-input" multiple hidden accept="image/*,video/*,audio/*" onchange="handleFileSelect(event)">
                 </div>
                 <div id="upload-list" class="upload-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gallery Viewer -->
+    <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="看图器">
+        <div class="viewer-backdrop" id="viewer-backdrop"></div>
+        <div class="viewer-topbar">
+            <button type="button" class="viewer-back" onclick="closeViewer()">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5m6-7l-7 7 7 7"/></svg>
+                <span>返回文件</span>
+            </button>
+            <div class="viewer-title">
+                <div class="viewer-name" id="viewer-name"></div>
+                <div class="viewer-counter" id="viewer-counter"></div>
+            </div>
+            <div class="viewer-actions">
+                <button type="button" class="viewer-icon-btn" onclick="viewerCopyLink()" title="复制图片链接 (C)" aria-label="复制图片链接">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14a4.5 4.5 0 006.4 0l3-3a4.5 4.5 0 00-6.4-6.4l-1 1M14 10a4.5 4.5 0 00-6.4 0l-3 3a4.5 4.5 0 006.4 6.4l1-1"/></svg>
+                </button>
+                <a class="viewer-icon-btn" id="viewer-download" href="#" download title="下载" aria-label="下载">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+                </a>
+                <button type="button" class="viewer-icon-btn" onclick="closeViewer()" title="关闭 (Esc)" aria-label="关闭">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+        </div>
+        <div class="viewer-stage" id="viewer-stage">
+            <div class="viewer-spinner" id="viewer-spinner"></div>
+            <div class="viewer-error" id="viewer-error">浏览器无法显示这个文件，可点右上角下载</div>
+            <div class="viewer-notice" id="viewer-notice" role="status"></div>
+            <button type="button" class="viewer-nav viewer-prev" id="viewer-prev" onclick="viewerStep(-1)" title="上一张 (←)" aria-label="上一张">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>
+            </button>
+            <button type="button" class="viewer-nav viewer-next" id="viewer-next" onclick="viewerStep(1)" title="下一张 (→)" aria-label="下一张">
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+            </button>
+            <div class="viewer-toolbar" id="viewer-toolbar">
+                <button type="button" id="viewer-zoom-out" onclick="viewerZoomBy(1 / 1.25)" title="缩小 (-)" aria-label="缩小">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M5 12h14"/></svg>
+                </button>
+                <button type="button" class="viewer-zoom-label" id="viewer-zoom-label" onclick="viewerResetView()" title="适应窗口 (0)">100%</button>
+                <button type="button" id="viewer-zoom-in" onclick="viewerZoomBy(1.25)" title="放大 (+)" aria-label="放大">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <button type="button" onclick="viewerRotate()" title="旋转 (R)" aria-label="旋转">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 10-2.3 5.7M20 4v7h-7"/></svg>
+                </button>
+                <button type="button" id="viewer-fullscreen" onclick="viewerToggleFullscreen()" title="全屏 (F)" aria-label="全屏">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+                </button>
             </div>
         </div>
     </div>
@@ -2315,6 +2692,7 @@ export class ImageService {
                 card.className = 'image-card';
                 // key 用 dataset 写入，不拼进 HTML，避免文件名里的引号破坏结构
                 card.dataset.key = img.key;
+                card.dataset.url = img.url;
                 
                 // 唯一的 ID 用于在该卡片内操作图片
                 const imageId = 'img-' + Math.random().toString(36).substr(2, 9);
@@ -2367,8 +2745,11 @@ export class ImageService {
                 previewEl.addEventListener('click', e => {
                     if (selectedKeys.size > 0) {
                         toggleCardSelection(card, e);
-                    } else {
+                    } else if (e.metaKey || e.ctrlKey) {
+                        // 保留原来的“新标签页打开原图”，按住 Cmd/Ctrl 点击即可
                         window.open(img.url);
+                    } else {
+                        openViewer(img.key);
                     }
                 });
 
@@ -2616,9 +2997,472 @@ export class ImageService {
         }
 
         document.addEventListener('keydown', e => {
+            if (viewer.open) return;
             const modalOpen = document.getElementById('upload-modal').style.display === 'flex';
             if (e.key === 'Escape' && selectedKeys.size > 0 && !modalOpen) clearSelection();
         });
+
+        // ===== 画廊看图器 =====
+        // 翻页范围就是网格里已加载的卡片，以 key 定位当前项，
+        // 这样看图期间“加载更多”追加卡片也不会让序号错位。
+        const VIEWER_MIN_ZOOM = 0.2;
+        const VIEWER_MAX_ZOOM = 8;
+        const viewer = {
+            open: false,
+            key: null,
+            seq: 0,          // 每次切换递增，丢弃过期图片的 onload
+            media: null,
+            naturalW: 0,
+            naturalH: 0,
+            fit: 1,          // 适应窗口时的缩放比；界面上的百分比以它为 100%
+            zoom: 1,
+            rotation: 0,     // 不取模，保证 270°→360° 的过渡动画方向正确
+            tx: 0,
+            ty: 0,
+            pointers: new Map(),
+            gesture: null,
+            lastTap: null,
+            noticeTimer: 0,
+            pushedHistory: false
+        };
+
+        function viewerEl(id) {
+            return document.getElementById(id);
+        }
+
+        function viewerItems() {
+            return gridCards().map(card => ({ key: card.dataset.key, url: card.dataset.url }));
+        }
+
+        function viewerBaseName(key) {
+            return (key || '').split('/').pop();
+        }
+
+        /**
+         * 打开看图器并定位到指定文件
+         * @param {string} key 存储 key
+         */
+        function openViewer(key) {
+            const root = viewerEl('viewer');
+            viewer.open = true;
+            root.classList.add('open');
+            document.body.style.overflow = 'hidden';
+            // 压一条历史记录，手机上的返回手势 / 浏览器后退键会关闭看图器而不是离开后台
+            if (!history.state || !history.state.cfViewer) {
+                history.pushState({ cfViewer: true }, '');
+                viewer.pushedHistory = true;
+            }
+            viewerEl('viewer-fullscreen').style.display = document.fullscreenEnabled ? '' : 'none';
+            viewerShow(key);
+        }
+
+        function closeViewer() {
+            if (!viewer.open) return;
+            // 由 popstate 统一收尾，避免历史栈里残留一条看图记录
+            if (viewer.pushedHistory && history.state && history.state.cfViewer) {
+                history.back();
+                return;
+            }
+            hideViewer();
+        }
+
+        function hideViewer() {
+            viewer.open = false;
+            viewer.pushedHistory = false;
+            viewer.seq++;
+            viewerClearMedia();
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            viewerEl('viewer').classList.remove('open');
+            viewerEl('viewer-backdrop').style.backgroundImage = '';
+            document.body.style.overflow = '';
+        }
+
+        window.addEventListener('popstate', () => {
+            if (viewer.open) hideViewer();
+        });
+
+        function viewerClearMedia() {
+            if (viewer.media) {
+                // 先停掉音视频，否则移除节点后仍可能在后台继续缓冲
+                if (viewer.media.pause) viewer.media.pause();
+                viewer.media.removeAttribute('src');
+                viewer.media.remove();
+                viewer.media = null;
+            }
+            viewerEl('viewer-spinner').classList.remove('show');
+            viewerEl('viewer-error').style.display = 'none';
+        }
+
+        /**
+         * 刷新标题、计数、翻页按钮与下载链接
+         */
+        function viewerUpdateChrome() {
+            const items = viewerItems();
+            const index = items.findIndex(item => item.key === viewer.key);
+            const current = items[index];
+            if (!current) return;
+            const name = viewerBaseName(current.key);
+            viewerEl('viewer-name').textContent = name;
+            viewerEl('viewer-name').title = current.key;
+            viewerEl('viewer-counter').textContent =
+                '正在查看第' + (index + 1) + '张/共' + items.length + (currentCursor ? '+' : '') + '张';
+            viewerEl('viewer-prev').disabled = index <= 0;
+            viewerEl('viewer-next').disabled = index >= items.length - 1 && !currentCursor;
+            const download = viewerEl('viewer-download');
+            download.href = current.url;
+            download.setAttribute('download', name);
+        }
+
+        /**
+         * 显示指定文件：图片走可缩放的 <img>，音视频交给原生播放器
+         * @param {string} key 存储 key
+         */
+        function viewerShow(key) {
+            const items = viewerItems();
+            const index = items.findIndex(item => item.key === key);
+            if (index < 0) {
+                hideViewer();
+                return;
+            }
+            const item = items[index];
+            const seq = ++viewer.seq;
+            viewer.key = key;
+            viewerClearMedia();
+            viewer.zoom = 1;
+            viewer.rotation = 0;
+            viewer.tx = 0;
+            viewer.ty = 0;
+            viewerUpdateChrome();
+
+            const stage = viewerEl('viewer-stage');
+            const kind = mediaKind(key);
+            viewerEl('viewer-toolbar').classList.toggle('hidden', kind !== 'image');
+            stage.classList.remove('draggable');
+
+            if (kind === 'image') {
+                const img = new Image();
+                img.className = 'viewer-media';
+                img.alt = viewerBaseName(key);
+                img.draggable = false;
+                img.decoding = 'async';
+                viewerEl('viewer-spinner').classList.add('show');
+                img.onload = () => {
+                    if (seq !== viewer.seq) return;
+                    viewerEl('viewer-spinner').classList.remove('show');
+                    // 无尺寸声明的 SVG 在部分浏览器里 naturalWidth 为 0，给个兜底
+                    viewer.naturalW = img.naturalWidth || 800;
+                    viewer.naturalH = img.naturalHeight || 600;
+                    viewer.media = img;
+                    stage.appendChild(img);
+                    viewerComputeFit();
+                    viewerApply(false);
+                    viewerEl('viewer-backdrop').style.backgroundImage = 'url("' + item.url + '")';
+                };
+                img.onerror = () => {
+                    if (seq !== viewer.seq) return;
+                    viewerEl('viewer-spinner').classList.remove('show');
+                    viewerEl('viewer-error').style.display = 'block';
+                    viewerEl('viewer-backdrop').style.backgroundImage = '';
+                };
+                img.src = item.url;
+            } else {
+                const av = document.createElement(kind === 'video' ? 'video' : 'audio');
+                av.className = 'viewer-av';
+                av.controls = true;
+                av.autoplay = true;
+                av.playsInline = true;
+                av.src = item.url;
+                viewer.media = av;
+                stage.appendChild(av);
+                viewerEl('viewer-backdrop').style.backgroundImage = '';
+                viewerEl('viewer-zoom-label').textContent = '100%';
+            }
+
+            // 预取相邻图片，翻页时基本无需等待
+            [items[index - 1], items[index + 1]].forEach(neighbor => {
+                if (neighbor && mediaKind(neighbor.key) === 'image') new Image().src = neighbor.url;
+            });
+
+            // 快翻到已加载的末尾时，后台提前拉下一页
+            if (index >= items.length - 3 && currentCursor && !isLoading) {
+                loadImages(true).then(() => {
+                    if (viewer.open) viewerUpdateChrome();
+                });
+            }
+        }
+
+        /**
+         * 前后翻页；到达已加载的末尾且还有下一页时，先加载再翻
+         * @param {number} direction -1 上一张，1 下一张
+         */
+        async function viewerStep(direction) {
+            if (!viewer.open) return;
+            let items = viewerItems();
+            const target = items.findIndex(item => item.key === viewer.key) + direction;
+            if (target < 0) {
+                viewerNotice('已经是第一张');
+                return;
+            }
+            if (target >= items.length && currentCursor) {
+                viewerNotice('正在加载更多…');
+                await loadImages(true);
+                items = viewerItems();
+            }
+            if (target >= items.length) {
+                viewerNotice(currentCursor ? '加载中，请稍后再试' : '已经是最后一张');
+                viewerUpdateChrome();
+                return;
+            }
+            viewerShow(items[target].key);
+        }
+
+        function viewerNotice(text) {
+            const el = viewerEl('viewer-notice');
+            el.textContent = text;
+            el.classList.add('show');
+            clearTimeout(viewer.noticeTimer);
+            viewer.noticeTimer = setTimeout(() => el.classList.remove('show'), 1400);
+        }
+
+        function viewerIsImage() {
+            return viewer.media && viewer.media.tagName === 'IMG';
+        }
+
+        /**
+         * 按舞台尺寸与当前旋转角度计算“适应窗口”比例，小图不放大
+         */
+        function viewerComputeFit() {
+            const rect = viewerEl('viewer-stage').getBoundingClientRect();
+            const sideways = Math.abs(viewer.rotation / 90) % 2 === 1;
+            const w = sideways ? viewer.naturalH : viewer.naturalW;
+            const h = sideways ? viewer.naturalW : viewer.naturalH;
+            // 桌面端给左右翻页按钮留出位置
+            const padX = rect.width > 640 ? 176 : 16;
+            const padY = 32;
+            viewer.fit = Math.min(1, (rect.width - padX) / w, (rect.height - padY) / h);
+            if (!(viewer.fit > 0)) viewer.fit = 1;
+        }
+
+        function viewerApply(animate) {
+            if (!viewerIsImage()) return;
+            const img = viewer.media;
+            img.classList.toggle('animate', !!animate);
+            img.style.width = viewer.naturalW * viewer.fit + 'px';
+            img.style.height = viewer.naturalH * viewer.fit + 'px';
+            img.style.transform = 'translate(-50%, -50%) translate(' + viewer.tx + 'px, ' + viewer.ty + 'px) '
+                + 'rotate(' + viewer.rotation + 'deg) scale(' + viewer.zoom + ')';
+            viewerEl('viewer-zoom-label').textContent = Math.round(viewer.zoom * 100) + '%';
+            viewerEl('viewer-zoom-out').disabled = viewer.zoom <= VIEWER_MIN_ZOOM + 0.001;
+            viewerEl('viewer-zoom-in').disabled = viewer.zoom >= VIEWER_MAX_ZOOM - 0.001;
+            viewerEl('viewer-stage').classList.toggle('draggable', viewer.zoom > 1);
+        }
+
+        /**
+         * 以舞台中心为原点的某点为锚缩放，锚点下的像素保持不动
+         * @param {number} target 目标缩放（1 = 适应窗口）
+         * @param {number} px 锚点 x，相对舞台中心
+         * @param {number} py 锚点 y，相对舞台中心
+         * @param {boolean} animate 是否过渡
+         */
+        function viewerSetZoom(target, px, py, animate) {
+            if (!viewerIsImage()) return;
+            const next = Math.max(VIEWER_MIN_ZOOM, Math.min(VIEWER_MAX_ZOOM, target));
+            const ratio = next / viewer.zoom;
+            viewer.tx = px - (px - viewer.tx) * ratio;
+            viewer.ty = py - (py - viewer.ty) * ratio;
+            viewer.zoom = next;
+            // 缩回适应尺寸以内时重新居中，免得图片被拖在角落里
+            if (next <= 1) {
+                viewer.tx = 0;
+                viewer.ty = 0;
+            }
+            viewerApply(animate);
+        }
+
+        function viewerZoomBy(factor) {
+            viewerSetZoom(viewer.zoom * factor, 0, 0, true);
+        }
+
+        function viewerResetView() {
+            if (!viewerIsImage()) return;
+            viewer.zoom = 1;
+            viewer.tx = 0;
+            viewer.ty = 0;
+            viewer.rotation = Math.round(viewer.rotation / 360) * 360;
+            viewerComputeFit();
+            viewerApply(true);
+            viewerNotice('已适应窗口');
+        }
+
+        function viewerRotate() {
+            if (!viewerIsImage()) return;
+            viewer.rotation += 90;
+            viewerComputeFit();
+            viewerApply(true);
+            viewerNotice('已旋转 ' + (viewer.rotation % 360) + '°');
+        }
+
+        function viewerCopyLink() {
+            const current = viewerItems().find(item => item.key === viewer.key);
+            if (current) copyUrl(current.url);
+        }
+
+        function viewerToggleFullscreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            } else if (document.fullscreenEnabled) {
+                viewerEl('viewer').requestFullscreen().catch(() => {});
+            }
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            const btn = viewerEl('viewer-fullscreen');
+            const label = document.fullscreenElement ? '退出全屏 (F)' : '全屏 (F)';
+            btn.title = label;
+            btn.setAttribute('aria-label', label);
+        });
+
+        function viewerPoint(e) {
+            const rect = viewerEl('viewer-stage').getBoundingClientRect();
+            return { x: e.clientX - rect.left - rect.width / 2, y: e.clientY - rect.top - rect.height / 2 };
+        }
+
+        function initViewerGestures() {
+            const stage = viewerEl('viewer-stage');
+
+            stage.addEventListener('wheel', e => {
+                if (!viewerIsImage()) return;
+                e.preventDefault();
+                const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+                const delta = Math.max(-80, Math.min(80, e.deltaY * unit));
+                if (Math.abs(delta) < 0.1) return;
+                const p = viewerPoint(e);
+                // 触控板双指捏合会以 ctrl+wheel 的形式到达，步子更小，放大灵敏度
+                const k = e.ctrlKey ? 0.01 : 0.0015;
+                viewerSetZoom(viewer.zoom * Math.exp(-delta * k), p.x, p.y, false);
+            }, { passive: false });
+
+            stage.addEventListener('dblclick', e => {
+                if (e.target.closest('button, a')) return;
+                viewerToggleZoomAt(viewerPoint(e));
+            });
+
+            stage.addEventListener('pointerdown', e => {
+                if (e.target.closest('button, a, video, audio')) return;
+                stage.setPointerCapture(e.pointerId);
+                viewer.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                if (viewer.pointers.size === 1) {
+                    viewer.gesture = {
+                        type: 'pan',
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        tx: viewer.tx,
+                        ty: viewer.ty,
+                        pinched: false
+                    };
+                    if (viewer.zoom > 1) stage.classList.add('dragging');
+                } else if (viewer.pointers.size === 2) {
+                    const [a, b] = [...viewer.pointers.values()];
+                    viewer.gesture = {
+                        type: 'pinch',
+                        dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+                        zoom: viewer.zoom,
+                        pinched: true
+                    };
+                }
+            });
+
+            stage.addEventListener('pointermove', e => {
+                if (!viewer.pointers.has(e.pointerId) || !viewer.gesture) return;
+                viewer.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+                const g = viewer.gesture;
+                if (g.type === 'pinch' && viewer.pointers.size >= 2) {
+                    const [a, b] = [...viewer.pointers.values()];
+                    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+                    const mid = viewerPoint({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
+                    viewerSetZoom(g.zoom * dist / g.dist, mid.x, mid.y, false);
+                } else if (g.type === 'pan' && viewer.zoom > 1 && viewerIsImage()) {
+                    viewer.tx = g.tx + e.clientX - g.startX;
+                    viewer.ty = g.ty + e.clientY - g.startY;
+                    viewerApply(false);
+                }
+            });
+
+            const endPointer = e => {
+                if (!viewer.pointers.has(e.pointerId)) return;
+                viewer.pointers.delete(e.pointerId);
+                stage.classList.remove('dragging');
+                const g = viewer.gesture;
+                if (!g) return;
+                if (viewer.pointers.size > 0) {
+                    // 捏合抬起一根手指后不再当作滑动翻页
+                    if (g.type === 'pinch') viewer.gesture = { type: 'idle', pinched: true };
+                    return;
+                }
+                viewer.gesture = null;
+                if (g.type !== 'pan' || g.pinched || e.type === 'pointercancel') return;
+                const dx = e.clientX - g.startX;
+                const dy = e.clientY - g.startY;
+                // 未放大时横向滑动翻页（主要给触屏用）
+                if (viewer.zoom <= 1 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                    viewerStep(dx < 0 ? 1 : -1);
+                    return;
+                }
+                // 触屏上 touch-action: none 会吞掉 dblclick，自己识别双击
+                if (e.pointerType === 'touch' && Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+                    const now = Date.now();
+                    const last = viewer.lastTap;
+                    if (last && now - last.time < 300 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 30) {
+                        viewer.lastTap = null;
+                        viewerToggleZoomAt(viewerPoint(e));
+                    } else {
+                        viewer.lastTap = { time: now, x: e.clientX, y: e.clientY };
+                    }
+                }
+            };
+            stage.addEventListener('pointerup', endPointer);
+            stage.addEventListener('pointercancel', endPointer);
+
+            window.addEventListener('resize', () => {
+                if (!viewer.open || !viewerIsImage()) return;
+                viewerComputeFit();
+                viewerApply(false);
+            });
+        }
+
+        function viewerToggleZoomAt(point) {
+            if (!viewerIsImage()) return;
+            if (viewer.zoom > 1.05) {
+                viewerSetZoom(1, 0, 0, true);
+            } else {
+                viewerSetZoom(2, point.x, point.y, true);
+            }
+        }
+
+        document.addEventListener('keydown', e => {
+            if (!viewer.open) return;
+            // 焦点在播放器上时把方向键等留给它自己
+            if (e.target.closest && e.target.closest('video, audio') && e.key !== 'Escape') return;
+            const key = e.key.toLowerCase();
+            const handlers = {
+                escape: closeViewer,
+                arrowleft: () => viewerStep(-1),
+                arrowright: () => viewerStep(1),
+                '+': () => viewerZoomBy(1.25),
+                '=': () => viewerZoomBy(1.25),
+                '-': () => viewerZoomBy(1 / 1.25),
+                '0': viewerResetView,
+                r: viewerRotate,
+                f: viewerToggleFullscreen,
+                c: viewerCopyLink
+            };
+            const handler = handlers[key];
+            if (!handler || e.metaKey || e.ctrlKey || e.altKey) return;
+            e.preventDefault();
+            handler();
+        });
+
+        document.addEventListener('DOMContentLoaded', initViewerGestures);
 
         function formatSize(bytes) {
             if (bytes === 0) return '0 B';
