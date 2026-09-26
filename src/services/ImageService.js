@@ -1052,10 +1052,15 @@ export class ImageService {
             outline-offset: -2px;
         }
 
-        /* 触屏没有悬停，复选框常驻 */
+        /* 触屏没有悬停，复选框常驻；点按后 :hover 会粘住，不做上浮 */
         @media (hover: none) {
             .select-toggle {
                 opacity: 1;
+            }
+
+            .image-card:hover {
+                transform: none;
+                box-shadow: none;
             }
         }
 
@@ -1120,6 +1125,10 @@ export class ImageService {
         @media (prefers-reduced-motion: reduce) {
             .toolbar-slot > .filter-bar,
             .toolbar-slot > .selection-bar {
+                transition: none;
+            }
+
+            .segmented-thumb {
                 transition: none;
             }
         }
@@ -1434,6 +1443,54 @@ export class ImageService {
             cursor: not-allowed;
         }
 
+        /* 排序分段控件：两项等宽并排，滑块随 data-value 平移 */
+        .segmented {
+            position: relative;
+            display: inline-grid;
+            grid-auto-flow: column;
+            grid-auto-columns: 1fr;
+            padding: 3px;
+            background: var(--control-bg);
+            border: 1px solid var(--surface-border);
+            border-radius: 0.5rem;
+        }
+
+        .segmented-thumb {
+            position: absolute;
+            top: 3px;
+            bottom: 3px;
+            left: 3px;
+            width: calc(50% - 3px);
+            background: var(--soft-button-bg);
+            border-radius: 0.375rem;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+            transition: transform 0.2s ease;
+        }
+
+        .segmented[data-value="asc"] .segmented-thumb {
+            transform: translateX(100%);
+        }
+
+        /* 覆盖全局 button 的主色实心样式 */
+        .segmented button {
+            position: relative;
+            z-index: 1;
+            width: auto;
+            padding: 0.3rem 0.9rem;
+            background: transparent;
+            color: var(--text-dim);
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            white-space: nowrap;
+            transition: color 0.2s;
+        }
+
+        .segmented button[aria-checked="true"] {
+            color: var(--text);
+            font-weight: 600;
+        }
+
         /* 年/月/日三个下拉始终同处一行 */
         .date-selects {
             display: flex;
@@ -1447,16 +1504,20 @@ export class ImageService {
                 padding: 1.25rem 1rem;
             }
 
-            .selection-bar #selection-count {
-                flex-basis: 100%;
+            /* 多选栏与筛选栏叠在同一格里，高度取较高者，所以也得压成一行 */
+            .selection-bar {
+                flex-wrap: nowrap;
+                gap: 0.375rem;
+                padding: 0.625rem;
+                font-size: 0.8125rem;
             }
 
-            .selection-bar .spacer {
-                display: none;
+            .selection-bar #selection-count {
+                white-space: nowrap;
             }
 
             .selection-bar button {
-                flex: 1;
+                padding: 0.4rem 0.5rem;
             }
 
             header {
@@ -1510,50 +1571,99 @@ export class ImageService {
                 padding: 1.75rem 1.25rem;
             }
 
-            .filter-bar {
-                padding: 1rem;
-                gap: 0.75rem;
-                margin-bottom: 1.5rem;
-            }
 
             .toolbar-slot {
                 margin-bottom: 1.5rem;
             }
 
-            .selection-bar {
-                padding: 1rem;
+            /* 年/月/日与排序压成一行：去掉标签和图标，三个下拉等分剩余宽度 */
+            .filter-bar {
+                flex-wrap: nowrap;
+                gap: 0.375rem;
+                padding: 0.625rem;
+                margin-bottom: 1.5rem;
             }
 
-            .filter-bar .spacer {
+            .filter-bar .spacer,
+            .filter-bar .select-group > svg,
+            .filter-bar .select-group > label {
                 display: none;
             }
 
             .select-group {
+                gap: 0.375rem;
+            }
+
+            .date-group {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .date-selects {
                 width: 100%;
-                gap: 0.5rem;
+                gap: 0.375rem;
             }
 
             .select-group select {
                 flex: 1;
                 min-width: 0;
-                padding: 0.5rem 0.5rem;
+                padding: 0.4rem 0.25rem 0.4rem 0.4rem;
                 font-size: 0.8125rem;
             }
 
-            /* 标签占一整行，下面三个下拉等分一行 */
-            .date-group {
-                flex-wrap: wrap;
-                row-gap: 0.6rem;
+            .segmented {
+                padding: 2px;
             }
 
-            .date-selects {
-                width: 100%;
-                gap: 0.5rem;
+            .segmented-thumb {
+                top: 2px;
+                bottom: 2px;
+                left: 2px;
+                width: calc(50% - 2px);
             }
 
+            .segmented button {
+                padding: 0.3rem 0.5rem;
+                font-size: 0.8125rem;
+            }
+
+            /* 一行两张卡片；minmax(0, 1fr) 防止长路径把列撑宽 */
             .grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.75rem;
+            }
+
+            .image-card {
+                border-radius: 0.75rem;
+            }
+
+            .image-preview {
+                aspect-ratio: 1;
+            }
+
+            .image-info {
+                padding: 0.625rem;
+            }
+
+            .image-path {
+                font-size: 0.75rem;
+            }
+
+            .image-meta {
+                gap: 0.25rem;
+                font-size: 0.6875rem;
+                white-space: nowrap;
+            }
+
+            .card-actions {
+                gap: 0.375rem;
+                margin-top: 0.625rem;
+            }
+
+            .btn-sm {
+                padding: 0.375rem 0.25rem;
+                gap: 0.2rem;
+                white-space: nowrap;
             }
 
             .modal-content {
@@ -1631,24 +1741,24 @@ export class ImageService {
                         <label for="year-select">日期筛选:</label>
                         <div class="date-selects">
                             <select id="year-select" onchange="onYearChange()">
-                                <option value="">全部年份</option>
+                                <option value="">年份</option>
                             </select>
                             <select id="month-select" onchange="onMonthChange()" disabled>
-                                <option value="">全部月份</option>
+                                <option value="">月份</option>
                             </select>
                             <select id="day-select" onchange="resetAndLoad()" disabled>
-                                <option value="">全部日期</option>
+                                <option value="">日期</option>
                             </select>
                         </div>
                     </div>
                     <div class="spacer"></div>
                     <div class="select-group">
                         <svg style="width: 16px; height: 16px; color: var(--text-dim);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9M3 12h5m5 8V8m0 12l-3-3m3 3l3-3"></path></svg>
-                        <label for="order-select">排序:</label>
-                        <select id="order-select" onchange="resetAndLoad()">
-                            <option value="desc">最新在前</option>
-                            <option value="asc">最早在前</option>
-                        </select>
+                        <div class="segmented" id="order-toggle" role="radiogroup" aria-label="排序" data-value="desc">
+                            <span class="segmented-thumb" aria-hidden="true"></span>
+                            <button type="button" role="radio" aria-checked="true" data-value="desc" title="最新在前" onclick="setOrder('desc')">最新</button>
+                            <button type="button" role="radio" aria-checked="false" tabindex="-1" data-value="asc" title="最旧在前" onclick="setOrder('asc')">最旧</button>
+                        </div>
                     </div>
                 </div>
                 <div id="selection-bar" class="selection-bar" aria-hidden="true">
@@ -1997,7 +2107,7 @@ export class ImageService {
                         size: file.size,
                         uploaded: new Date().toISOString()
                     };
-                    const newestFirst = document.getElementById('order-select').value !== 'asc';
+                    const newestFirst = currentOrder() !== 'asc';
                     renderImages([newImage], !newestFirst, newestFirst);
                 } else {
                     statusText.innerHTML = '<svg style="width:16px;height:16px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
@@ -2027,7 +2137,7 @@ export class ImageService {
             const dayEl = document.getElementById('day-select');
 
             const target = { year: yearEl, month: monthEl, day: dayEl }[level];
-            const placeholder = { year: '全部年份', month: '全部月份', day: '全部日期' }[level];
+            const placeholder = { year: '年份', month: '月份', day: '日期' }[level];
             const suffix = { year: '年', month: '月', day: '日' }[level];
 
             target.innerHTML = '<option value="">' + placeholder + '</option>';
@@ -2079,6 +2189,36 @@ export class ImageService {
             resetAndLoad();
         }
 
+        /** 当前排序方向：'desc' 最新在前 / 'asc' 最早在前 */
+        function currentOrder() {
+            return document.getElementById('order-toggle').dataset.value;
+        }
+
+        /**
+         * 切换排序方向并从头重新加载；点当前项不做任何事。
+         * @param {string} value 'desc' 或 'asc'
+         */
+        function setOrder(value) {
+            const toggle = document.getElementById('order-toggle');
+            if (toggle.dataset.value === value) return;
+            toggle.dataset.value = value;
+            toggle.querySelectorAll('button').forEach(btn => {
+                const checked = btn.dataset.value === value;
+                btn.setAttribute('aria-checked', String(checked));
+                btn.tabIndex = checked ? 0 : -1;
+            });
+            resetAndLoad();
+        }
+
+        // radiogroup 的键盘约定：左右方向键在两项之间切换，焦点跟着走
+        document.getElementById('order-toggle').addEventListener('keydown', e => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            e.preventDefault();
+            const value = e.key === 'ArrowLeft' ? 'desc' : 'asc';
+            setOrder(value);
+            e.currentTarget.querySelector('button[data-value="' + value + '"]').focus();
+        });
+
         function resetAndLoad() {
             currentCursor = null;
             const loadingEl = document.getElementById('loading');
@@ -2103,7 +2243,7 @@ export class ImageService {
             const year = document.getElementById('year-select').value;
             const month = document.getElementById('month-select').value;
             const day = document.getElementById('day-select').value;
-            const order = document.getElementById('order-select').value;
+            const order = currentOrder();
             const loadingEl = document.getElementById('loading');
             const loadMoreBtn = document.querySelector('#load-more button');
             if (loadMoreBtn) loadMoreBtn.disabled = true;
