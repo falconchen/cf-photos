@@ -1052,10 +1052,15 @@ export class ImageService {
             outline-offset: -2px;
         }
 
-        /* 触屏没有悬停，复选框常驻 */
+        /* 触屏没有悬停，复选框常驻；点按后 :hover 会粘住，不做上浮 */
         @media (hover: none) {
             .select-toggle {
                 opacity: 1;
+            }
+
+            .image-card:hover {
+                transform: none;
+                box-shadow: none;
             }
         }
 
@@ -1551,9 +1556,43 @@ export class ImageService {
                 gap: 0.5rem;
             }
 
+            /* 一行两张卡片；minmax(0, 1fr) 防止长路径把列撑宽 */
             .grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.75rem;
+            }
+
+            .image-card {
+                border-radius: 0.75rem;
+            }
+
+            .image-preview {
+                aspect-ratio: 1;
+            }
+
+            .image-info {
+                padding: 0.625rem;
+            }
+
+            .image-path {
+                font-size: 0.75rem;
+            }
+
+            .image-meta {
+                gap: 0.25rem;
+                font-size: 0.6875rem;
+                white-space: nowrap;
+            }
+
+            .card-actions {
+                gap: 0.375rem;
+                margin-top: 0.625rem;
+            }
+
+            .btn-sm {
+                padding: 0.375rem 0.25rem;
+                gap: 0.2rem;
+                white-space: nowrap;
             }
 
             .modal-content {
