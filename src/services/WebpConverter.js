@@ -23,6 +23,11 @@ const WEBP_CONVERT_TIMEOUT = 20000;
 // 直接跳过转换、存原图，只有第一个上传付这个代价。
 const WEBP_BACKOFF_MS = 60000;
 
+// 超时是否说明服务挂了，要看图多大。小图 20 秒都转不完，基本可以断定服务有问题；
+// 大图超时可能只是这一张太重、或者上传链路慢（实测本地 wrangler dev 传 5 MB 就要 17 秒以上），
+// 只让这一张存原图，不连累后面的上传。连不上和 5xx 不看大小，照常退避。
+const WEBP_HEAVY_INPUT_BYTES = 1024 * 1024;
+
 // 转换服务地址 → 恢复尝试的时间戳。模块级：ImageService 按请求构造，状态要跨请求留在 isolate 里。
 const backoffUntil = new Map();
 
@@ -223,7 +228,14 @@ export class WebpConverter {
 
             return { buffer: output.buffer, contentType: 'image/webp', extension: '.webp' };
         } catch (error) {
-            // 连不上或超时：服务大概率整个不可用，退避一段时间
+            // AbortSignal.timeout 触发时抛的是 name 为 TimeoutError 的 DOMException
+            const heavyTimeout = error?.name === 'TimeoutError' && bytes.byteLength >= WEBP_HEAVY_INPUT_BYTES;
+            if (heavyTimeout) {
+                console.warn(`[WebP] ${sourceType} 大图（${(bytes.byteLength / 1048576).toFixed(1)} MB）转换超时，本张保留原图，不退避`);
+                return null;
+            }
+
+            // 连不上，或者小图也超时：服务大概率整个不可用，退避一段时间
             this._backOff();
             console.warn(`[WebP] ${sourceType} 转换失败，保留原图，${WEBP_BACKOFF_MS / 1000} 秒内不再尝试：${error?.message || error}`);
             return null;

@@ -322,7 +322,7 @@ npx wrangler secret put WEBP_CONVERTER_URL     # imaginary 的根地址，如 ht
 npx wrangler secret put WEBP_CONVERTER_TOKEN   # imaginary 的 API Key
 ```
 
-转换时会清掉 GPS 等 EXIF，照片方向先按 EXIF 摆正。转换服务连不上、超时或返回 5xx 时存原图，并在 60 秒内不再尝试，免得每次上传都等超时。已有的存量文件不会被转换。本地调试时 `WEBP_CONVERTER_URL` 可以写 `http://127.0.0.1:8088`（只有本机回环地址允许 http）。
+转换时会清掉 GPS 等 EXIF，照片方向先按 EXIF 摆正。转换服务连不上、超时或返回 5xx 时存原图，并在 60 秒内不再尝试，免得每次上传都等超时；但 1 MB 以上的大图超时只影响那一张，不会让后面的上传也跳过转换。已有的存量文件不会被转换。本地调试时 `WEBP_CONVERTER_URL` 可以写 `http://127.0.0.1:8088`（只有本机回环地址允许 http）。
 
 ### 部署
 

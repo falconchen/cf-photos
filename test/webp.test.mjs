@@ -195,6 +195,35 @@ test('连不上或 5xx 之后退避 60 秒，期间不再发请求', async () =>
     }
 });
 
+test('小图超时说明服务有问题，照常退避', async () => {
+    const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    assert.equal(await converterWith(fakeConverter({ error: timeout })).convert(PNG), null);
+
+    const healthy = fakeConverter();
+    assert.equal(await converterWith(healthy).convert(PNG), null);
+    assert.equal(healthy.calls.length, 0, '退避期内不应再发请求');
+});
+
+test('大图超时只影响这一张，不触发退避', async () => {
+    const heavy = padded(PNG.subarray(0, 8), 1024 * 1024);
+    const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    assert.equal(await converterWith(fakeConverter({ error: timeout })).convert(heavy), null);
+
+    // 紧接着的小图照常送去转换
+    const healthy = fakeConverter();
+    assert.equal((await converterWith(healthy).convert(PNG)).contentType, 'image/webp');
+    assert.equal(healthy.calls.length, 1);
+});
+
+test('大图连不上仍然退避：连接失败与图多大无关', async () => {
+    const heavy = padded(PNG.subarray(0, 8), 1024 * 1024);
+    assert.equal(await converterWith(fakeConverter({ error: new TypeError('fetch failed') })).convert(heavy), null);
+
+    const healthy = fakeConverter();
+    assert.equal(await converterWith(healthy).convert(PNG), null);
+    assert.equal(healthy.calls.length, 0);
+});
+
 test('4xx 是这一张图的问题，不触发退避', async () => {
     const rejected = fakeConverter({ status: 406, body: '{"message":"Unsupported media type","status":406}' });
     assert.equal(await converterWith(rejected).convert(PNG), null);
