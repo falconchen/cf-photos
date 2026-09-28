@@ -21,3 +21,15 @@ MAX_UPLOAD_MB = "95"
 [[kv_namespaces]]
 binding = "PHOTO_CACHE"
 id = "25948693abef432290d9c001040916ad"
+
+# Worker Previews（非 main 分支推送时由 npx wrangler preview 创建的预览环境，需要 wrangler ≥ 4.143）。
+# 预览不继承上面的 [vars] 和 [[kv_namespaces]]，这个块本身是必需的，只写预览要用的值。
+# 密钥不写在这里，统一放在预览的 base config 里（所有分支共用，与生产互不可见）：
+#   npx wrangler preview base-config secret put AUTH_TOKEN   # 必配，且与生产不同：缺了上传/列表/删除会无鉴权放行
+#   npx wrangler preview base-config secret put WEBDAV_URL   # 指向独立目录，如 https://<host>/dav/i-preview
+#   npx wrangler preview base-config secret put WEBDAV_USERNAME
+#   npx wrangler preview base-config secret put WEBDAV_PASSWORD
+# PHOTO_CACHE 刻意不配：没有 KV 绑定时 CachedStorage 自动退化为直读 WebDAV，预览不会碰生产缓存。
+[previews.vars]
+TIMEZONE_OFFSET = "8"
+MAX_UPLOAD_MB = "95"
