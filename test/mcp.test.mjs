@@ -10,7 +10,7 @@ const env = {
     TIMEZONE_OFFSET: '8'
 };
 
-// 1x1 PNG，用来喂 base64 与远程抓取两条路径
+// 1x1 PNG，用来喂远程抓取与文件参数两条路径；PNG_BASE64 只用来验证 base64 已被拒
 const PNG = new Uint8Array([
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
     0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
@@ -114,7 +114,7 @@ test('tools/list 暴露 upload_image 与 create_upload_url，inputSchema 是合�
     const tool = body.result.tools[0];
     assert.equal(tool.name, 'upload_image');
     assert.equal(tool.inputSchema.type, 'object');
-    assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ['file', 'image_base64', 'source_url']);
+    assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ['file', 'source_url']);
     assert.equal(tool.inputSchema.additionalProperties, false);
     // 顶层不放 oneOf/anyOf：三选一由服务端手写校验，见 McpService._uploadImage
     assert.equal(tool.inputSchema.oneOf, undefined);
@@ -223,58 +223,28 @@ test('file 参数：认不出的内容、SVG、坏对象与被拦地址都返回
     }
 });
 
-test('image_base64 以文件头为准：声明成非图片类型的 PNG 字节照样上传成功', async () => {
-    await withFetch(null, async () => {
-        const body = await (await post({
-            jsonrpc: '2.0', id: 15, method: 'tools/call',
-            params: { name: 'upload_image', arguments: { image_base64: `data:application/vnd.openai.code-mode-image;base64,${PNG_BASE64}` } }
-        })).json();
-        assert.equal(body.result.isError, false);
-        assert.equal(body.result.structuredContent.content_type, 'image/png');
-    });
+test('image_base64 已下线：无论单独传还是混着传，都返回指路的 isError 且不落库', async () => {
+    const cases = [
+        { image_base64: `data:image/png;base64,${PNG_BASE64}` },
+        { image_base64: PNG_BASE64, source_url: 'https://cdn.test.example/a.png' },
+        { image_base64: '' }
+    ];
 
-    // 字节也不是图片时，报错要把模型引到 file 参数
-    await withFetch(null, async (calls) => {
-        const body = await (await post({
-            jsonrpc: '2.0', id: 16, method: 'tools/call',
-            params: { name: 'upload_image', arguments: { image_base64: `data:application/vnd.openai.code-mode-image;base64,${btoa('ref:img_123')}` } }
-        })).json();
-        assert.equal(body.result.isError, true);
-        assert.match(body.result.content[0].text, /file 参数/);
-        assert.equal(calls.length, 0);
-    });
-});
-
-test('tools/call 用 image_base64 上传成功，返回请求域名下的绝对 URL', async () => {
-    await withFetch(null, async (calls) => {
-        const body = await (await post({
-            jsonrpc: '2.0', id: 3, method: 'tools/call',
-            params: { name: 'upload_image', arguments: { image_base64: `data:image/png;base64,${PNG_BASE64}` } }
-        })).json();
-
-        assert.equal(body.result.isError, false);
-        assert.match(body.result.structuredContent.url, /^https:\/\/photos\.example\.com\/i\/\d{4}\/\d{2}\/\d{2}\/.{8}\.png$/);
-        assert.equal(body.result.structuredContent.content_type, 'image/png');
-        assert.equal(body.result.structuredContent.size_bytes, PNG.length);
-        // URL 放在文案第一行，模型抄的就是它
-        assert.ok(body.result.content[0].text.startsWith(`上传成功：${body.result.structuredContent.url}`));
-
-        const put = calls.find(call => call.options.method === 'PUT');
-        assert.equal(put.options.headers.get('content-type'), 'image/png');
-    });
-});
-
-test('裸 base64 认不出类型时直接拒绝，而不是静默存成无后缀文件', async () => {
-    await withFetch(null, async (calls) => {
-        const body = await (await post({
-            jsonrpc: '2.0', id: 3, method: 'tools/call',
-            params: { name: 'upload_image', arguments: { image_base64: btoa('not an image at all') } }
-        })).json();
-
-        assert.equal(body.result.isError, true);
-        assert.match(body.result.content[0].text, /无法识别图片类型/);
-        assert.equal(calls.length, 0, '被拒的内容不该写进存储');
-    });
+    for (const args of cases) {
+        await withFetch(null, async (calls) => {
+            const response = await post({
+                jsonrpc: '2.0', id: 3, method: 'tools/call',
+                params: { name: 'upload_image', arguments: args }
+            });
+            const body = await response.json();
+            assert.equal(response.status, 200);
+            assert.equal(body.error, undefined);
+            assert.equal(body.result.isError, true);
+            assert.match(body.result.content[0].text, /不再接受 image_base64/);
+            assert.match(body.result.content[0].text, /create_upload_url/);
+            assert.equal(calls.length, 0, '被拒的请求不该发出任何出站请求');
+        });
+    }
 });
 
 test('tools/call 用 source_url 拉取远程图片并落库，出站请求不携带任何客户端请求头', async () => {
@@ -289,7 +259,13 @@ test('tools/call 用 source_url 拉取远程图片并落库，出站请求不携
         })).json();
 
         assert.equal(body.result.isError, false);
-        assert.match(body.result.structuredContent.url, /\.png$/);
+        assert.match(body.result.structuredContent.url, /^https:\/\/photos\.example\.com\/i\/\d{4}\/\d{2}\/\d{2}\/.{8}\.png$/);
+        assert.equal(body.result.structuredContent.size_bytes, PNG.length);
+        // URL 放在文案第一行，模型抄的就是它
+        assert.ok(body.result.content[0].text.startsWith(`上传成功：${body.result.structuredContent.url}`));
+
+        const put = calls.find(call => call.options.method === 'PUT');
+        assert.equal(put.options.headers.get('content-type'), 'image/png');
 
         const outbound = calls.find(call => call.url.hostname === 'cdn.test.example');
         assert.equal(outbound.options.redirect, 'manual', '绝不能跟随跳转');
@@ -330,13 +306,11 @@ test('source_url 拒绝非 HTTPS、IP 直连、localhost 与本站域名，且�
     });
 });
 
-test('参数三选一：多给或都不给时返回 isError 而不是 JSON-RPC 错误', async () => {
+test('参数二选一：同时提供或都不提供时返回 isError 而不是 JSON-RPC 错误', async () => {
     const file = { download_url: 'https://files.oai.test/a', file_id: 'file_abc' };
     const cases = [
         {},
-        { source_url: 'https://cdn.test.example/a.png', image_base64: PNG_BASE64 },
         { file, source_url: 'https://cdn.test.example/a.png' },
-        { file, image_base64: PNG_BASE64 },
         // 坏 file 也占名额：不能悄悄退回去用 source_url
         { file: 'oops', source_url: 'https://cdn.test.example/a.png' },
         { source_url: '   ' }

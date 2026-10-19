@@ -35,12 +35,12 @@ const UPLOAD_IMAGE_TOOL = {
     description: [
         '把一张图片上传到本图床，返回可以直接公开访问的图片 URL。',
         '',
-        '必须且只能提供下面三个参数中的一个：',
-        '- file：对话里的图片文件（用户上传的、或你生成的）。客户端支持文件参数时（如 ChatGPT）优先用它，不要自己把文件转成 base64。',
+        '必须且只能提供下面两个参数中的一个：',
+        '- file：对话里的图片文件（用户上传的、或你生成的）。客户端支持文件参数时（如 ChatGPT）用它。',
         '- source_url：图片的公网 HTTPS 地址，由服务端自行下载。当用户给出的是一个网址时用它。',
-        '- image_base64：图片的 base64 内容，支持 "data:image/png;base64,xxx" 形式的 data URL，也支持纯 base64 字符串。只适合几 KB 的小图，且只在上面两种都用不了时用。',
         '',
-        '如果文件在你能执行命令、并且能联网的环境里（例如 claude.ai 代码执行环境里的 /mnt/user-data/uploads/，或 Claude Code 能访问的本地文件），不要用 image_base64，改用 create_upload_url 工具。',
+        '本工具不接受 base64，不要尝试把图片编码后传入。',
+        '如果两个参数都用不了，但文件在你能执行命令、并且能联网的环境里（例如 claude.ai 代码执行环境里的 /mnt/user-data/uploads/，或 Claude Code 能访问的本地文件），改用 create_upload_url 工具。',
         '',
         '支持 JPEG / PNG / GIF / WebP / AVIF / HEIC / BMP / TIFF / ICO，单张不超过 20 MB。出于安全考虑不接受 SVG。',
         'source_url 只接受公网 HTTPS 域名地址，不接受 IP 直连、内网地址、localhost，也不跟随重定向。',
@@ -54,7 +54,7 @@ const UPLOAD_IMAGE_TOOL = {
             // 刻意内联而不是 $defs + $ref：不是每个客户端转换 schema 时都会解引用。
             file: {
                 type: 'object',
-                description: '对话里的图片文件，由客户端填入临时下载地址；与 source_url、image_base64 三选一',
+                description: '对话里的图片文件，由客户端填入临时下载地址；与 source_url 二选一',
                 properties: {
                     download_url: { type: 'string' },
                     file_id: { type: 'string' },
@@ -66,11 +66,7 @@ const UPLOAD_IMAGE_TOOL = {
             },
             source_url: {
                 type: 'string',
-                description: '图片的公网 HTTPS 地址；与 file、image_base64 三选一'
-            },
-            image_base64: {
-                type: 'string',
-                description: '图片的 base64 或 data URL 字符串；与 file、source_url 三选一'
+                description: '图片的公网 HTTPS 地址；与 file 二选一'
             }
         },
         additionalProperties: false
@@ -94,7 +90,7 @@ const CREATE_UPLOAD_URL_TOOL = {
     description: [
         '为一个本地文件签发一次性上传地址。适用于：文件就在你能执行命令、并且能联网的环境里，',
         '例如 claude.ai 代码执行环境里用户上传的文件（通常在 /mnt/user-data/uploads/ 下），或 Claude Code 能访问的本地文件。',
-        '这时用它代替 upload_image 的 image_base64：字节由 curl 直接传给图床，不必在对话里输出 base64。',
+        '字节由 curl 直接传给图床，不经过对话。本服务器不接受 base64 上传，不要尝试。',
         '',
         '用法：',
         '1. 用文件名调用本工具，例如 file_name: "photo.png"。后缀决定存储类型，支持图片、视频与音频，不接受 SVG。',
@@ -241,7 +237,7 @@ export class McpService {
                 title: 'cf-photos 图床',
                 version: this.version
             },
-            instructions: '本服务器把图片上传到图床并返回公开可访问的 URL。upload_image 接收文件参数、公网地址或 base64；文件在能执行命令并联网的环境里时，用 create_upload_url 获取一次性地址再用 curl 上传。'
+            instructions: '本服务器把图片上传到图床并返回公开可访问的 URL。upload_image 接收文件参数或公网地址，不接受 base64；文件在能执行命令并联网的环境里时，用 create_upload_url 获取一次性地址再用 curl 上传。'
         };
     }
 
@@ -338,17 +334,23 @@ export class McpService {
      * @returns {Promise<Object>} tools/call 的 result
      */
     async _uploadImage(args, origin, selfHost) {
+        // image_base64 已经下线：模型要逐字输出整张图的 base64，慢且几乎总是失败，
+        // 却又是模型最爱的退路。缓存着旧工具表的客户端还会传它，所以显式拦下并指路，
+        // 而不是当成未知参数默默忽略、再报一句让人摸不着头脑的「缺少参数」。
+        if (args.image_base64 !== undefined) {
+            return this._toolError('本服务器已不再接受 image_base64。请改用：file（对话里的文件，客户端支持文件参数时）、source_url（公网地址），或者在能执行命令并联网的环境里调用 create_upload_url 获取一次性地址后用 curl 上传。');
+        }
+
         // file 只看「有没有给」，不看内容是否合法：给了个坏对象也算占了一个名额，
-        // 这样「坏 file + 好 source_url」报的是三选一冲突，而不是悄悄用了 source_url。
+        // 这样「坏 file + 好 source_url」报的是二选一冲突，而不是悄悄用了 source_url。
         const hasFile = args.file !== undefined && args.file !== null;
         const hasUrl = typeof args.source_url === 'string' && args.source_url.trim() !== '';
-        const hasBase64 = typeof args.image_base64 === 'string' && args.image_base64.trim() !== '';
 
-        // 手写三选一校验而不是在 schema 里写 oneOf：规范只说客户端 SHOULD 校验，
+        // 手写二选一校验而不是在 schema 里写 oneOf：规范只说客户端 SHOULD 校验，
         // 不少客户端把 schema 转成模型侧 tool-calling 格式时会丢掉根层组合关键字；
         // 而且手写才能给出模型真正能照着改的中文错误。
-        if ([hasFile, hasUrl, hasBase64].filter(Boolean).length !== 1) {
-            return this._toolError('必须且只能提供 file、source_url、image_base64 三个参数中的一个。');
+        if (hasFile === hasUrl) {
+            return this._toolError('必须且只能提供 file 或 source_url 其中一个参数。');
         }
 
         let image;
@@ -361,10 +363,8 @@ export class McpService {
             }
             const hint = typeof file.mime_type === 'string' ? file.mime_type : '';
             image = await this._fetchRemoteImage(file.download_url.trim(), selfHost, { label: 'file.download_url', sniff: true, hint: hint });
-        } else if (hasUrl) {
-            image = await this._fetchRemoteImage(args.source_url.trim(), selfHost);
         } else {
-            image = this._decodeBase64Image(args.image_base64.trim());
+            image = await this._fetchRemoteImage(args.source_url.trim(), selfHost);
         }
 
         if (image.error) return this._toolError(image.error);
@@ -409,7 +409,7 @@ export class McpService {
         }
 
         if (url.protocol !== 'https:') {
-            return { error: '只接受 https:// 开头的公网地址。如果图片在本地或只有 http 地址，请改用 image_base64 参数传入。' };
+            return { error: '只接受 https:// 开头的公网地址。如果图片在本地或只有 http 地址，请改用 create_upload_url 获取一次性上传地址。' };
         }
 
         // URL 里带凭据既是泄漏面，也是经典的解析器混淆手法
@@ -565,71 +565,6 @@ export class McpService {
         }
 
         return { buffer: buffer, contentType: sniffed, extension: sniffedExtension };
-    }
-
-    /**
-     * 解码 image_base64 参数
-     * 与 ImageService.uploadWithBase64 的区别：那边认不出类型时会静默存成
-     * image/jpeg 且没有后缀名（uPic 依赖这个行为，不能改）；这里直接拒绝，
-     * 因为模型看得懂错误并且能改用 data URL 重试。
-     * @param {string} input data URL 或裸 base64
-     * @returns {{buffer: Uint8Array, contentType: string, extension: string}|{error: string}}
-     */
-    _decodeBase64Image(input) {
-        let contentType = '';
-        let base64Data = input;
-
-        if (input.startsWith('data:')) {
-            const parts = input.split(',');
-            const mimeMatch = parts[0].match(/:(.*?);/);
-            if (mimeMatch) contentType = mimeMatch[1].trim().toLowerCase();
-            base64Data = parts.length > 1 ? parts[1] : '';
-        }
-
-        // 去掉换行等空白，某些客户端会按行折断 base64
-        base64Data = base64Data.replace(/\s/g, '');
-        if (!base64Data) {
-            return { error: 'image_base64 为空。' };
-        }
-
-        let binary;
-        try {
-            binary = atob(base64Data);
-        } catch (error) {
-            return { error: 'image_base64 不是合法的 base64 内容。' };
-        }
-
-        if (binary.length > this.maxBytes) {
-            return { error: `图片超过 ${this._maxMB()} MB 上限。` };
-        }
-
-        const buffer = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            buffer[i] = binary.charCodeAt(i);
-        }
-
-        // 文件头优先于 data URL 里声明的类型：模型写的声明可能是错的，甚至根本不是
-        // 图片类型（ChatGPT 会写成 application/vnd.openai.code-mode-image），字节不会骗人。
-        // 认不出时才沿用声明，所以声明为 SVG 的 SVG 依然会在下面被拒。
-        const sniffed = this._sniffMime(buffer);
-        if (sniffed) {
-            contentType = sniffed;
-        }
-
-        if (contentType === 'image/svg+xml') {
-            return { error: '出于安全考虑不接受 SVG 图片。' };
-        }
-
-        const extension = contentType.startsWith('image/') ? this.imageService._getExtension(contentType) : '';
-        if (!extension) {
-            return {
-                error: contentType
-                    ? `不支持的图片类型：${contentType}。这通常说明传入的不是图片本身的字节；如果图片是对话里的文件，请改用 file 参数。`
-                    : '无法识别图片类型，请使用 "data:image/png;base64,..." 形式的 data URL 传入。'
-            };
-        }
-
-        return { buffer: buffer, contentType: contentType, extension: extension };
     }
 
     /**
