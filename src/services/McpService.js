@@ -35,9 +35,10 @@ const UPLOAD_IMAGE_TOOL = {
     description: [
         '把一张图片上传到本图床，返回可以直接公开访问的图片 URL。',
         '',
-        '必须且只能提供下面两个参数中的一个：',
+        '必须且只能提供下面三个参数中的一个：',
+        '- file：对话里的图片文件（用户上传的、或你生成的）。客户端支持文件参数时（如 ChatGPT）优先用它，不要自己把文件转成 base64。',
         '- source_url：图片的公网 HTTPS 地址，由服务端自行下载。当用户给出的是一个网址时用它。',
-        '- image_base64：图片的 base64 内容，支持 "data:image/png;base64,xxx" 形式的 data URL，也支持纯 base64 字符串。当你手上已经有图片字节时用它。',
+        '- image_base64：图片的 base64 内容，支持 "data:image/png;base64,xxx" 形式的 data URL，也支持纯 base64 字符串。只在上面两种都用不了、而你手上确实有图片字节时用它。',
         '',
         '支持 JPEG / PNG / GIF / WebP / AVIF / HEIC / BMP / TIFF / ICO，单张不超过 20 MB。出于安全考虑不接受 SVG。',
         'source_url 只接受公网 HTTPS 域名地址，不接受 IP 直连、内网地址、localhost，也不跟随重定向。',
@@ -46,16 +47,40 @@ const UPLOAD_IMAGE_TOOL = {
     inputSchema: {
         type: 'object',
         properties: {
+            // ChatGPT 文件参数（见 _meta["openai/fileParams"]）。四个属性必须全部声明、
+            // 只有 download_url 和 file_id 能进 required，否则 ChatGPT 的 Scan Tools 会拒收。
+            // 刻意内联而不是 $defs + $ref：不是每个客户端转换 schema 时都会解引用。
+            file: {
+                type: 'object',
+                description: '对话里的图片文件，由客户端填入临时下载地址；与 source_url、image_base64 三选一',
+                properties: {
+                    download_url: { type: 'string' },
+                    file_id: { type: 'string' },
+                    mime_type: { type: 'string' },
+                    file_name: { type: 'string' }
+                },
+                required: ['download_url', 'file_id'],
+                additionalProperties: false
+            },
             source_url: {
                 type: 'string',
-                description: '图片的公网 HTTPS 地址；与 image_base64 二选一'
+                description: '图片的公网 HTTPS 地址；与 file、image_base64 三选一'
             },
             image_base64: {
                 type: 'string',
-                description: '图片的 base64 或 data URL 字符串；与 source_url 二选一'
+                description: '图片的 base64 或 data URL 字符串；与 file、source_url 三选一'
             }
         },
         additionalProperties: false
+    },
+    // 放在工具描述符上，不是 inputSchema 里。ChatGPT 看到它才会把对话里的文件换成
+    // { download_url, file_id, mime_type?, file_name? } 填进 file，而不是让模型自己写 base64
+    // ——那条路在 ChatGPT 里只会得到 application/vnd.openai.code-mode-image 这种内部引用。
+    // 其他客户端（Claude 等）忽略 _meta，file 对它们只是一个用不上的可选参数。
+    _meta: {
+        'openai/fileParams': ['file'],
+        'openai/toolInvocation/invoking': '正在上传到图床…',
+        'openai/toolInvocation/invoked': '已上传到图床'
     }
 };
 
@@ -229,19 +254,34 @@ export class McpService {
      * @returns {Promise<Object>} tools/call 的 result
      */
     async _uploadImage(args, origin, selfHost) {
+        // file 只看「有没有给」，不看内容是否合法：给了个坏对象也算占了一个名额，
+        // 这样「坏 file + 好 source_url」报的是三选一冲突，而不是悄悄用了 source_url。
+        const hasFile = args.file !== undefined && args.file !== null;
         const hasUrl = typeof args.source_url === 'string' && args.source_url.trim() !== '';
         const hasBase64 = typeof args.image_base64 === 'string' && args.image_base64.trim() !== '';
 
-        // 手写二选一校验而不是在 schema 里写 oneOf：规范只说客户端 SHOULD 校验，
+        // 手写三选一校验而不是在 schema 里写 oneOf：规范只说客户端 SHOULD 校验，
         // 不少客户端把 schema 转成模型侧 tool-calling 格式时会丢掉根层组合关键字；
         // 而且手写才能给出模型真正能照着改的中文错误。
-        if (hasUrl === hasBase64) {
-            return this._toolError('必须且只能提供 source_url 或 image_base64 其中一个参数。');
+        if ([hasFile, hasUrl, hasBase64].filter(Boolean).length !== 1) {
+            return this._toolError('必须且只能提供 file、source_url、image_base64 三个参数中的一个。');
         }
 
-        const image = hasUrl
-            ? await this._fetchRemoteImage(args.source_url.trim(), selfHost)
-            : this._decodeBase64Image(args.image_base64.trim());
+        let image;
+        if (hasFile) {
+            const file = args.file;
+            if (typeof file !== 'object' || Array.isArray(file) ||
+                typeof file.download_url !== 'string' || file.download_url.trim() === '' ||
+                typeof file.file_id !== 'string' || file.file_id.trim() === '') {
+                return this._toolError('file 必须是包含 download_url 与 file_id 两个字符串字段的对象。');
+            }
+            const hint = typeof file.mime_type === 'string' ? file.mime_type : '';
+            image = await this._fetchRemoteImage(file.download_url.trim(), selfHost, { label: 'file.download_url', sniff: true, hint: hint });
+        } else if (hasUrl) {
+            image = await this._fetchRemoteImage(args.source_url.trim(), selfHost);
+        } else {
+            image = this._decodeBase64Image(args.image_base64.trim());
+        }
 
         if (image.error) return this._toolError(image.error);
 
@@ -273,14 +313,15 @@ export class McpService {
      * 但 wrangler dev 下 workerd 用的是本机网络栈，这些检查在开发期是真的在挡 SSRF。
      * @param {string} raw 原始 URL 字符串
      * @param {string} selfHost 本站 hostname
+     * @param {string} [label='source_url'] 错误文案里指代这个地址的参数名
      * @returns {{url: URL}|{error: string}}
      */
-    _validateSourceUrl(raw, selfHost) {
+    _validateSourceUrl(raw, selfHost, label = 'source_url') {
         let url;
         try {
             url = new URL(raw);
         } catch (error) {
-            return { error: `source_url 不是合法的 URL：${raw}` };
+            return { error: `${label} 不是合法的 URL：${raw}` };
         }
 
         if (url.protocol !== 'https:') {
@@ -289,7 +330,7 @@ export class McpService {
 
         // URL 里带凭据既是泄漏面，也是经典的解析器混淆手法
         if (url.username || url.password) {
-            return { error: 'source_url 不能包含用户名或密码。' };
+            return { error: `${label} 不能包含用户名或密码。` };
         }
 
         const host = url.hostname.toLowerCase();
@@ -324,12 +365,23 @@ export class McpService {
 
     /**
      * 抓取远程图片并读成字节
-     * @param {string} raw source_url 原始值
+     * source_url 与 file.download_url 共用这一个函数，SSRF 检查一条不少：
+     * file 是谁都能填的普通参数，「ChatGPT 文件参数」只是一种用法，不是来源证明。
+     * 两者唯一的区别是类型怎么定——见 options.sniff。
+     * @param {string} raw 待抓取的地址
      * @param {string} selfHost 本站 hostname
+     * @param {Object} [options={}] 可选项
+     * @param {string} [options.label='source_url'] 错误文案里指代这个地址的参数名
+     * @param {boolean} [options.sniff=false] 按文件头定类型，不信响应头。file 参数用：
+     *   临时下载地址背后是对象存储，Content-Type 常是 application/octet-stream
+     * @param {string} [options.hint=''] 客户端声明的 MIME，只用于错误文案
      * @returns {Promise<{buffer: Uint8Array, contentType: string, extension: string}|{error: string}>}
      */
-    async _fetchRemoteImage(raw, selfHost) {
-        const verdict = this._validateSourceUrl(raw, selfHost);
+    async _fetchRemoteImage(raw, selfHost, options = {}) {
+        const label = options.label || 'source_url';
+        const sniff = options.sniff === true;
+
+        const verdict = this._validateSourceUrl(raw, selfHost, label);
         if (verdict.error) return verdict;
 
         let response;
@@ -371,8 +423,9 @@ export class McpService {
 
         // 白名单与后缀名来源同一张表，两者永不打架。_getExtension 标了 @private，
         // 这里跨类调用是有意为之：另建一份 MIME 表迟早会漂移。
+        // sniff 模式下响应头说了不算，要等字节读完再判，这里先放行。
         const extension = mime.startsWith('image/') ? this.imageService._getExtension(mime) : '';
-        if (!extension) {
+        if (!extension && !sniff) {
             await this._discard(response);
             return { error: `该地址返回的不是支持的图片类型：${mime || '未知'}` };
         }
@@ -413,7 +466,21 @@ export class McpService {
             offset += chunk.byteLength;
         }
 
-        return { buffer: buffer, contentType: mime, extension: extension };
+        if (!sniff) {
+            return { buffer: buffer, contentType: mime, extension: extension };
+        }
+
+        // 只认文件头，不回落到响应头或客户端声明的 mime_type：_sniffMime 覆盖了
+        // 工具描述里承诺的全部格式，认不出就说明不是我们收的图片。SVG 是文本，
+        // 文件头永远认不出，所以这条路天然挡住 SVG，不必再单独判断。
+        const sniffed = this._sniffMime(buffer);
+        const sniffedExtension = sniffed ? this.imageService._getExtension(sniffed) : '';
+        if (!sniffedExtension) {
+            const declared = options.hint ? `（客户端声明为 ${options.hint}）` : '';
+            return { error: `无法从文件内容识别出支持的图片格式${declared}。` };
+        }
+
+        return { buffer: buffer, contentType: sniffed, extension: sniffedExtension };
     }
 
     /**
@@ -457,9 +524,12 @@ export class McpService {
             buffer[i] = binary.charCodeAt(i);
         }
 
-        // 没给 MIME 就按文件头识别
-        if (!contentType) {
-            contentType = this._sniffMime(buffer);
+        // 文件头优先于 data URL 里声明的类型：模型写的声明可能是错的，甚至根本不是
+        // 图片类型（ChatGPT 会写成 application/vnd.openai.code-mode-image），字节不会骗人。
+        // 认不出时才沿用声明，所以声明为 SVG 的 SVG 依然会在下面被拒。
+        const sniffed = this._sniffMime(buffer);
+        if (sniffed) {
+            contentType = sniffed;
         }
 
         if (contentType === 'image/svg+xml') {
@@ -470,7 +540,7 @@ export class McpService {
         if (!extension) {
             return {
                 error: contentType
-                    ? `不支持的图片类型：${contentType}`
+                    ? `不支持的图片类型：${contentType}。这通常说明传入的不是图片本身的字节；如果图片是对话里的文件，请改用 file 参数。`
                     : '无法识别图片类型，请使用 "data:image/png;base64,..." 形式的 data URL 传入。'
             };
         }
@@ -492,6 +562,8 @@ export class McpService {
         if (startsWith(0x47, 0x49, 0x46, 0x38)) return 'image/gif';
         if (startsWith(0x42, 0x4D)) return 'image/bmp';
         if (startsWith(0x00, 0x00, 0x01, 0x00)) return 'image/x-icon';
+        // TIFF 大端 MM\0* 与小端 II*\0
+        if (startsWith(0x4D, 0x4D, 0x00, 0x2A) || startsWith(0x49, 0x49, 0x2A, 0x00)) return 'image/tiff';
 
         // RIFF....WEBP
         if (startsWith(0x52, 0x49, 0x46, 0x46) && bytes.length >= 12 &&
