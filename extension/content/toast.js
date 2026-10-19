@@ -104,7 +104,7 @@
 .head { line-height: 16px; margin-bottom: 1px; }
 .app {
   font-size: 11px; font-weight: 600; letter-spacing: .02em;
-  background: linear-gradient(to right, #60a5fa, #a855f7); -webkit-background-clip: text; background-clip: text; color: transparent;
+  color: var(--muted);
 }
 .side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
 .time { font-size: 11px; line-height: 16px; color: var(--muted); white-space: nowrap; }
@@ -116,7 +116,7 @@
 }
 .message.mono { font: 12px/1.35 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .bar { height: 3px; margin-top: 7px; border-radius: 2px; background: var(--button); overflow: hidden; }
-.bar i { display: block; height: 100%; width: 0; background: linear-gradient(to right, #60a5fa, var(--primary)); border-radius: inherit; transition: width .3s ease; }
+.bar i { display: block; height: 100%; width: 0; background: var(--primary); border-radius: inherit; transition: width .3s ease; }
 .actions { display: flex; gap: 6px; margin-top: 8px; }
 .actions button {
   flex: 1; padding: 4px 8px; border: none; border-radius: 7px;
@@ -148,23 +148,16 @@
     }
 
     /**
-     * PhotoFlare logo：蓝紫渐变圆角方块 + 镜头与星芒，与图床后台、icons/logo.svg 一致
+     * PhotoFlare logo：纯橙圆角方块 + 镜头与耀斑，与图床后台、icons/logo.svg 一致
      */
     function appIcon() {
         const s = (tag, attrs, children) => h(tag, attrs, children, SVG_NS);
         return s('svg', { viewBox: '0 0 32 32', 'aria-hidden': 'true' }, [
-            s('defs', {}, [
-                s('linearGradient', { id: 'pf-toast-g', x1: '0', y1: '0', x2: '1', y2: '1' }, [
-                    s('stop', { offset: '0', 'stop-color': '#60a5fa' }),
-                    s('stop', { offset: '1', 'stop-color': '#a855f7' })
-                ])
-            ]),
-            s('rect', { width: '32', height: '32', rx: '12', fill: 'url(#pf-toast-g)' }),
+            s('rect', { width: '32', height: '32', rx: '9', fill: '#f97316' }),
             s('g', { transform: 'translate(6 6) scale(0.8333)' }, [
-                s('circle', { cx: '10.5', cy: '13.5', r: '7', fill: 'none', stroke: '#fff', 'stroke-width': '1.8' }),
-                s('circle', { cx: '10.5', cy: '13.5', r: '2.9', fill: 'none', stroke: '#fff', 'stroke-width': '1.8' }),
-                s('circle', { cx: '13.9', cy: '10.1', r: '1', fill: '#fff' }),
-                s('path', { d: 'M19 1.5Q19.9 4.6 23 5.5Q19.9 6.4 19 9.5Q18.1 6.4 15 5.5Q18.1 4.6 19 1.5Z', fill: '#fff' })
+                s('circle', { cx: '12', cy: '12', r: '7.5', fill: 'none', stroke: '#fff', 'stroke-width': '2' }),
+                s('circle', { cx: '12', cy: '12', r: '3', fill: 'none', stroke: '#fff', 'stroke-width': '2' }),
+                s('circle', { cx: '16.3', cy: '7.7', r: '1.4', fill: '#fff' })
             ])
         ]);
     }

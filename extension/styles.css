@@ -16,7 +16,6 @@
   --danger-soft: rgba(239, 68, 68, .1);
   --danger-line: rgba(239, 68, 68, .2);
   --success: #10b981;
-  --brand: linear-gradient(to right, #60a5fa, #a855f7);
   --control-bg: rgba(15, 23, 42, .5);
   --soft-bg: rgba(255, 255, 255, .1);
   --soft-bg-hover: rgba(255, 255, 255, .16);
@@ -104,10 +103,9 @@ input[type="checkbox"] { accent-color: var(--primary); }
 .muted { color: var(--muted); }
 .empty { color: var(--muted); text-align: center; padding: 32px 12px; margin: 0; }
 
-/* 品牌：渐变 logo + 渐变字 */
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; }
-.brand img { display: block; filter: drop-shadow(0 4px 10px rgba(96, 165, 250, .3)); }
-.brand span { background: var(--brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
+/* 品牌：纯橙 logo + 中性色字标 */
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap; color: var(--text); }
+.brand img { display: block; }
 
 /* ---------- 弹窗 ---------- */
 body.popup { width: 600px; font-size: 16px; background: var(--popup-gradient); }

@@ -626,7 +626,7 @@ export class ImageService {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PhotoFlare 管理后台</title>
-    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNjBhNWZhIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjYTg1NWY3Ii8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0idXJsKCNnKSIvPjxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjQiPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTgiIHI9IjguNCIvPjxjaXJjbGUgY3g9IjE0IiBjeT0iMTgiIHI9IjMuNSIvPjwvZz48Y2lyY2xlIGN4PSIxOC4yIiBjeT0iMTMuOCIgcj0iMS4xNSIgZmlsbD0iI2ZmZiIvPjxwYXRoIGQ9Ik0yNC4yIDMuNHExLjEgMy43IDQuOCA0LjgtMy43IDEuMS00LjggNC44LTEuMS0zLjctNC44LTQuOCAzLjctMS4xIDQuOC00LjhaIiBmaWxsPSIjZmZmIi8+PC9zdmc+">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOSIgZmlsbD0iI2Y5NzMxNiIvPjxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjYiPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjEwIi8+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iNCIvPjwvZz48Y2lyY2xlIGN4PSIyMS43IiBjeT0iMTAuMyIgcj0iMS45IiBmaWxsPSIjZmZmIi8+PC9zdmc+">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
         // 在首屏绘制前恢复主题，避免页面先闪过深色背景
@@ -648,6 +648,7 @@ export class ImageService {
         :root {
             color-scheme: dark;
             --primary: #3b82f6;
+            --brand: #f97316;
             --bg: #0f172a;
             --card-bg: rgba(30, 41, 59, 0.7);
             --text: #f8fafc;
@@ -676,6 +677,7 @@ export class ImageService {
         :root[data-theme="light"] {
             color-scheme: light;
             --primary: #2563eb;
+            --brand: #ea580c;
             --bg: #f4f7fb;
             --card-bg: rgba(255, 255, 255, 0.88);
             --text: #0f172a;
@@ -736,22 +738,16 @@ export class ImageService {
             font-size: 1.875rem;
             font-weight: 600;
             white-space: nowrap;
-            background: linear-gradient(to right, #60a5fa, #a855f7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
             display: flex;
             align-items: center;
             gap: 0.75rem;
         }
 
         .logo-icon {
-            background: linear-gradient(to bottom right, #60a5fa, #a855f7);
-            -webkit-background-clip: unset;
-            -webkit-text-fill-color: initial;
-            fill: white;
+            background: var(--brand);
             padding: 6px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
+            border-radius: 9px;
         }
 
         /* Login Screen */
@@ -2018,13 +2014,11 @@ export class ImageService {
             <h1>
                 <svg class="logo-icon" style="width: 32px; height: 32px;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <!-- 镜头外圈 -->
-                    <circle cx="10.5" cy="13.5" r="7" fill="none" stroke="white" stroke-width="1.8"/>
+                    <circle cx="12" cy="12" r="7.5" fill="none" stroke="white" stroke-width="2"/>
                     <!-- 光圈内核 -->
-                    <circle cx="10.5" cy="13.5" r="2.9" fill="none" stroke="white" stroke-width="1.8"/>
-                    <!-- 耀斑鬼影 -->
-                    <circle cx="13.9" cy="10.1" r="1" fill="white"/>
-                    <!-- 星芒耀斑 -->
-                    <path d="M19 1.5Q19.9 4.6 23 5.5Q19.9 6.4 19 9.5Q18.1 6.4 15 5.5Q18.1 4.6 19 1.5Z" fill="white"/>
+                    <circle cx="12" cy="12" r="3" fill="none" stroke="white" stroke-width="2"/>
+                    <!-- 耀斑 -->
+                    <circle cx="16.3" cy="7.7" r="1.4" fill="white"/>
                 </svg>
                 PhotoFlare
             </h1>
