@@ -299,7 +299,7 @@ test('完整授权码流程换到的访问令牌可以调用 MCP', async () => {
     const response = await toolsList(grant.access_token);
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.deepEqual(body.result.tools.map((tool) => tool.name), ['upload_image']);
+    assert.deepEqual(body.result.tools.map((tool) => tool.name), ['upload_image', 'create_upload_url']);
 });
 
 test('静态 AUTH_TOKEN 仍然可用（Claude Code 直连不受影响）', async () => {

@@ -40,6 +40,9 @@ const REFRESH_TTL = 90 * 24 * 3600;
 const SCOPE = 'photos:write';
 const SCOPES_SUPPORTED = [SCOPE, 'offline_access'];
 
+// OAuth 自用的令牌类型，signToken / verifyToken 不许外部借用
+const RESERVED_TOKEN_TYPES = new Set(['client', 'code', 'at', 'rt']);
+
 // 受本服务端保护的资源，即 MCP 端点路径
 const RESOURCE_PATH = '/mcp';
 
@@ -378,6 +381,31 @@ export class OAuthService {
         const body = toBase64Url(encoder.encode(JSON.stringify(payload)));
         const signature = await crypto.subtle.sign('HMAC', await this._key(), encoder.encode(body));
         return `${body}.${toBase64Url(new Uint8Array(signature))}`;
+    }
+
+    /**
+     * 供其他模块复用同一套 HMAC 签名（目前只有一次性上传地址，见 UploadTicketService）
+     * 隔离全靠 type：_verify 严格比对载荷里的 t，所以这里不许借用 OAuth 自己的四种类型，
+     * 否则签出来的东西就能冒充 client_id 或访问令牌。
+     * @param {string} type 载荷类型，不能是 client / code / at / rt
+     * @param {Object} claims 载荷字段
+     * @param {number} ttl 有效期秒数
+     * @returns {Promise<string>}
+     */
+    async signToken(type, claims, ttl) {
+        if (RESERVED_TOKEN_TYPES.has(type)) throw new Error(`令牌类型 ${type} 为 OAuth 保留`);
+        return await this._sign(type, claims, ttl);
+    }
+
+    /**
+     * signToken 的对应校验，签名不符 / 类型不符 / 已过期一律返回 null
+     * @param {string} token
+     * @param {string} type 期望的载荷类型，不能是 OAuth 保留类型
+     * @returns {Promise<Object|null>}
+     */
+    async verifyToken(token, type) {
+        if (RESERVED_TOKEN_TYPES.has(type)) return null;
+        return await this._verify(token, type);
     }
 
     /**

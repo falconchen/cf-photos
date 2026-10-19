@@ -102,9 +102,14 @@ test('notifications/initialized 返回 202 且响应体为空', async () => {
     assert.equal(await response.text(), '');
 });
 
-test('tools/list 只暴露 upload_image，inputSchema 是合法的 object schema', async () => {
+test('tools/list 暴露 upload_image 与 create_upload_url，inputSchema 是合法的 object schema', async () => {
     const body = await (await post({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
-    assert.equal(body.result.tools.length, 1);
+    assert.deepEqual(body.result.tools.map(tool => tool.name), ['upload_image', 'create_upload_url']);
+
+    const ticket = body.result.tools[1];
+    assert.equal(ticket.inputSchema.type, 'object');
+    assert.deepEqual(ticket.inputSchema.required, ['file_name']);
+    assert.equal(ticket.inputSchema.additionalProperties, false);
 
     const tool = body.result.tools[0];
     assert.equal(tool.name, 'upload_image');

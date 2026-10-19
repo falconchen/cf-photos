@@ -8,6 +8,7 @@ import { CachedStorage } from './services/CachedStorage.js';
 import { ImageService } from './services/ImageService.js';
 import { McpService } from './services/McpService.js';
 import { OAuthService } from './services/OAuthService.js';
+import { UploadTicketService } from './services/UploadTicketService.js';
 import { AuthMiddleware } from './middleware/AuthMiddleware.js';
 
 /**
@@ -151,6 +152,11 @@ export default {
             );
         }
 
+        // 凭一次性上传地址流式写入。匿名端点，地址里的签名就是凭据，见 UploadTicketService
+        if (UploadTicketService.owns(path)) {
+            return await new UploadTicketService(imageService, env).handle(request, url);
+        }
+
         // 处理图片获取和手动路径上传
         if (path.startsWith('/i/')) {
             if (request.method === 'PUT') {
@@ -241,7 +247,8 @@ export default {
             }
 
             return await new McpService(imageService, {
-                maxBytes: MAX_BUFFERED_UPLOAD
+                maxBytes: MAX_BUFFERED_UPLOAD,
+                uploadTickets: new UploadTicketService(imageService, env)
             }).handle(request);
         }
 

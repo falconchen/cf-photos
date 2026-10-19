@@ -38,7 +38,9 @@ const UPLOAD_IMAGE_TOOL = {
         '必须且只能提供下面三个参数中的一个：',
         '- file：对话里的图片文件（用户上传的、或你生成的）。客户端支持文件参数时（如 ChatGPT）优先用它，不要自己把文件转成 base64。',
         '- source_url：图片的公网 HTTPS 地址，由服务端自行下载。当用户给出的是一个网址时用它。',
-        '- image_base64：图片的 base64 内容，支持 "data:image/png;base64,xxx" 形式的 data URL，也支持纯 base64 字符串。只在上面两种都用不了、而你手上确实有图片字节时用它。',
+        '- image_base64：图片的 base64 内容，支持 "data:image/png;base64,xxx" 形式的 data URL，也支持纯 base64 字符串。只适合几 KB 的小图，且只在上面两种都用不了时用。',
+        '',
+        '如果文件在你能执行命令、并且能联网的环境里（例如 claude.ai 代码执行环境里的 /mnt/user-data/uploads/，或 Claude Code 能访问的本地文件），不要用 image_base64，改用 create_upload_url 工具。',
         '',
         '支持 JPEG / PNG / GIF / WebP / AVIF / HEIC / BMP / TIFF / ICO，单张不超过 20 MB。出于安全考虑不接受 SVG。',
         'source_url 只接受公网 HTTPS 域名地址，不接受 IP 直连、内网地址、localhost，也不跟随重定向。',
@@ -84,7 +86,37 @@ const UPLOAD_IMAGE_TOOL = {
     }
 };
 
-const TOOLS = [UPLOAD_IMAGE_TOOL];
+// 第二个工具：签发一次性上传地址，让能执行命令的环境把文件直接推过来，字节不经过对话。
+// Claude 没有 ChatGPT 那样的文件参数，这是它上传对话里文件的唯一可行路，见 UploadTicketService。
+const CREATE_UPLOAD_URL_TOOL = {
+    name: 'create_upload_url',
+    title: '获取一次性上传地址',
+    description: [
+        '为一个本地文件签发一次性上传地址。适用于：文件就在你能执行命令、并且能联网的环境里，',
+        '例如 claude.ai 代码执行环境里用户上传的文件（通常在 /mnt/user-data/uploads/ 下），或 Claude Code 能访问的本地文件。',
+        '这时用它代替 upload_image 的 image_base64：字节由 curl 直接传给图床，不必在对话里输出 base64。',
+        '',
+        '用法：',
+        '1. 用文件名调用本工具，例如 file_name: "photo.png"。后缀决定存储类型，支持图片、视频与音频，不接受 SVG。',
+        '2. 在你的命令执行环境里运行结果中给出的 curl 命令，把 <本地文件路径> 换成文件的真实路径。',
+        '3. curl 返回 JSON，result 为 success 时其中的 url 就是公开地址；只有到这一步才算上传成功，再把 url 交给用户。',
+        '',
+        '地址 10 分钟内有效、只能用一次，失败或过期就重新调用本工具。上传后的 URL 永久公开，请不要上传含有隐私内容的文件。'
+    ].join('\n'),
+    inputSchema: {
+        type: 'object',
+        properties: {
+            file_name: {
+                type: 'string',
+                description: '本地文件名或路径，只用来确定后缀，如 "photo.png" 或 "/mnt/user-data/uploads/photo.png"'
+            }
+        },
+        required: ['file_name'],
+        additionalProperties: false
+    }
+};
+
+const TOOLS = [UPLOAD_IMAGE_TOOL, CREATE_UPLOAD_URL_TOOL];
 
 export class McpService {
     /**
@@ -94,6 +126,7 @@ export class McpService {
      * @param {Function} [options.request] 出站请求函数，测试时注入假 fetch
      * @param {number} [options.maxBytes] 单张图片字节上限
      * @param {string} [options.version] serverInfo.version
+     * @param {UploadTicketService} [options.uploadTickets] 一次性上传地址的签发方，没有时 create_upload_url 报错
      */
     constructor(imageService, options = {}) {
         this.imageService = imageService;
@@ -102,6 +135,7 @@ export class McpService {
         this.request = options.request || ((...args) => fetch(...args));
         this.maxBytes = options.maxBytes || 20 * 1024 * 1024;
         this.version = options.version || '1.0.0';
+        this.uploadTickets = options.uploadTickets || null;
     }
 
     /**
@@ -207,7 +241,7 @@ export class McpService {
                 title: 'cf-photos 图床',
                 version: this.version
             },
-            instructions: '本服务器提供一个 upload_image 工具，用于把图片上传到图床并返回公开可访问的 URL。'
+            instructions: '本服务器把图片上传到图床并返回公开可访问的 URL。upload_image 接收文件参数、公网地址或 base64；文件在能执行命令并联网的环境里时，用 create_upload_url 获取一次性地址再用 curl 上传。'
         };
     }
 
@@ -228,7 +262,7 @@ export class McpService {
             return this._errorResponse(id, -32602, 'Invalid params: 缺少工具名 name', 200);
         }
 
-        if (params.name !== UPLOAD_IMAGE_TOOL.name) {
+        if (!TOOLS.some(tool => tool.name === params.name)) {
             return this._errorResponse(id, -32602, `Unknown tool: ${params.name}`, 200);
         }
 
@@ -238,12 +272,62 @@ export class McpService {
         }
 
         try {
-            return this._resultResponse(id, await this._uploadImage(args, origin, selfHost));
+            const result = params.name === CREATE_UPLOAD_URL_TOOL.name
+                ? await this._createUploadUrl(args, origin)
+                : await this._uploadImage(args, origin, selfHost);
+            return this._resultResponse(id, result);
         } catch (error) {
             // 兜底成 isError 而不是 -32603：WebDAV 抖动属于模型可以重试的 API 失败
-            console.error(`McpService._uploadImage 运行出错: ${error.message}`);
+            console.error(`McpService ${params.name} 运行出错: ${error.message}`);
             return this._resultResponse(id, this._toolError(`上传失败：${error.message}`));
         }
+    }
+
+    /**
+     * create_upload_url 工具本体
+     * 结果文案里直接给出可复制的 curl 命令：模型照抄比自己拼可靠，也省掉一轮
+     * 「该用什么方法、带什么头」的猜测。最终 URL 预先给出，但文案明确要求等 curl
+     * 成功后再交给用户——此刻那个地址还是 404。
+     * @param {Object} args 工具参数
+     * @param {string} origin 本站 origin
+     * @returns {Promise<Object>} tools/call 的 result
+     */
+    async _createUploadUrl(args, origin) {
+        if (!this.uploadTickets) {
+            return this._toolError('本服务器未启用一次性上传地址。');
+        }
+        if (typeof args.file_name !== 'string' || args.file_name.trim() === '') {
+            return this._toolError('必须提供 file_name，例如 "photo.png"。');
+        }
+
+        const ticket = await this.uploadTickets.create(origin, args.file_name.trim());
+        if (ticket.error) return this._toolError(ticket.error);
+
+        const command = `curl -sS -T '<本地文件路径>' '${ticket.uploadUrl}'`;
+        return {
+            content: [{
+                type: 'text',
+                text: [
+                    '已签发一次性上传地址，请在你的命令执行环境里运行：',
+                    command,
+                    '',
+                    `把 <本地文件路径> 换成文件的真实路径。地址 ${ticket.expiresAt} 前有效、只能用一次，单个文件不超过 ${Math.round(ticket.maxBytes / 1024 / 1024)} MB。`,
+                    `curl 返回 result 为 success 后，文件的公开地址是：${ticket.url}`,
+                    '在此之前该地址还不存在，不要提前交给用户。'
+                ].join('\n')
+            }],
+            structuredContent: {
+                upload_url: ticket.uploadUrl,
+                method: 'PUT',
+                curl_command: command,
+                url: ticket.url,
+                path: ticket.path,
+                content_type: ticket.contentType,
+                expires_at: ticket.expiresAt,
+                max_bytes: ticket.maxBytes
+            },
+            isError: false
+        };
     }
 
     /**
