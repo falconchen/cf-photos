@@ -109,10 +109,135 @@ test('tools/list 只暴露 upload_image，inputSchema 是合法的 object schema
     const tool = body.result.tools[0];
     assert.equal(tool.name, 'upload_image');
     assert.equal(tool.inputSchema.type, 'object');
-    assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ['image_base64', 'source_url']);
+    assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ['file', 'image_base64', 'source_url']);
     assert.equal(tool.inputSchema.additionalProperties, false);
-    // 顶层不放 oneOf/anyOf：二选一由服务端手写校验，见 McpService._uploadImage
+    // 顶层不放 oneOf/anyOf：三选一由服务端手写校验，见 McpService._uploadImage
     assert.equal(tool.inputSchema.oneOf, undefined);
+});
+
+test('tools/list 按 ChatGPT 文件参数规范声明 file，_meta 挂在工具描述符上', async () => {
+    const body = await (await post({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json();
+    const tool = body.result.tools[0];
+
+    assert.deepEqual(tool._meta['openai/fileParams'], ['file']);
+    assert.equal(tool.inputSchema._meta, undefined, '_meta 放错到 inputSchema 里 ChatGPT 不认');
+
+    // Scan Tools 的硬性要求：四个属性都要声明，required 恰好是 download_url 与 file_id
+    const file = tool.inputSchema.properties.file;
+    assert.equal(file.type, 'object');
+    assert.deepEqual(Object.keys(file.properties).sort(), ['download_url', 'file_id', 'file_name', 'mime_type']);
+    for (const property of Object.values(file.properties)) {
+        assert.equal(property.type, 'string');
+    }
+    assert.deepEqual([...file.required].sort(), ['download_url', 'file_id']);
+});
+
+test('file 参数：下载临时地址、按文件头定类型，响应头是 octet-stream 也照样落库', async () => {
+    const handler = (url) => url.hostname === 'files.oai.test'
+        ? new Response(PNG, { status: 200, headers: { 'Content-Type': 'application/octet-stream' } })
+        : null;
+
+    await withFetch(handler, async (calls) => {
+        const body = await (await post({
+            jsonrpc: '2.0', id: 13, method: 'tools/call',
+            params: {
+                name: 'upload_image',
+                arguments: {
+                    file: {
+                        download_url: 'https://files.oai.test/download/file_abc?sig=xyz',
+                        file_id: 'file_abc',
+                        // 声明故意写错：类型以文件头为准
+                        mime_type: 'image/jpeg',
+                        file_name: 'chart.png'
+                    }
+                }
+            }
+        })).json();
+
+        assert.equal(body.result.isError, false);
+        assert.match(body.result.structuredContent.url, /\.png$/);
+        assert.equal(body.result.structuredContent.content_type, 'image/png');
+        assert.equal(body.result.structuredContent.size_bytes, PNG.length);
+
+        const outbound = calls.find(call => call.url.hostname === 'files.oai.test');
+        assert.equal(outbound.url.search, '?sig=xyz', '签名参数必须原样带上');
+        assert.equal(outbound.options.redirect, 'manual');
+        assert.equal(outbound.options.headers.Authorization, undefined);
+
+        const put = calls.find(call => call.options.method === 'PUT');
+        assert.equal(put.options.headers.get('content-type'), 'image/png');
+    });
+});
+
+test('file 参数：认不出的内容、SVG、坏对象与被拦地址都返回 isError 且不落库', async () => {
+    const call = async (handler, file) => withFetch(handler, async (calls) => {
+        const body = await (await post({
+            jsonrpc: '2.0', id: 14, method: 'tools/call',
+            params: { name: 'upload_image', arguments: { file } }
+        })).json();
+        assert.equal(body.error, undefined);
+        assert.equal(calls.some(c => c.options.method === 'PUT'), false);
+        return { result: body.result, calls };
+    });
+    const serve = (bytes, type) => () => new Response(bytes, { status: 200, headers: { 'Content-Type': type } });
+    const file = (download_url, extra = {}) => ({ download_url, file_id: 'file_abc', ...extra });
+
+    // 响应头谎称 image/png，字节其实是 HTML：sniff 模式不信响应头
+    const html = await call(serve('<html><script>alert(1)</script></html>', 'image/png'),
+        file('https://files.oai.test/a', { mime_type: 'image/png' }));
+    assert.equal(html.result.isError, true);
+    assert.match(html.result.content[0].text, /无法从文件内容识别/);
+    assert.match(html.result.content[0].text, /image\/png/);
+
+    // SVG 是文本，文件头认不出，不管声明成什么都进不来
+    const svg = await call(serve('<svg xmlns="http://www.w3.org/2000/svg"/>', 'application/octet-stream'),
+        file('https://files.oai.test/a.svg', { mime_type: 'image/svg+xml' }));
+    assert.equal(svg.result.isError, true);
+
+    const redirected = await call(
+        () => new Response(null, { status: 302, headers: { Location: 'https://evil.test/a.png' } }),
+        file('https://files.oai.test/a')
+    );
+    assert.equal(redirected.result.isError, true);
+    assert.match(redirected.result.content[0].text, /跳转/);
+
+    // 与 source_url 同一套 SSRF 检查，且不发起任何出站请求
+    for (const blocked of ['http://files.oai.test/a', 'https://127.0.0.1/a', 'https://localhost/a', 'https://photos.example.com/i/x.png']) {
+        const { result, calls } = await call(null, file(blocked));
+        assert.equal(result.isError, true, blocked);
+        assert.equal(calls.length, 0, blocked);
+    }
+    const credentials = await call(null, file('https://u:p@files.oai.test/a'));
+    assert.match(credentials.result.content[0].text, /file\.download_url/);
+
+    for (const bad of ['https://files.oai.test/a', { file_id: 'file_abc' }, { download_url: 'https://files.oai.test/a' }, [], { download_url: '', file_id: 'x' }]) {
+        const { result, calls } = await call(null, bad);
+        assert.equal(result.isError, true, JSON.stringify(bad));
+        assert.match(result.content[0].text, /download_url 与 file_id/);
+        assert.equal(calls.length, 0);
+    }
+});
+
+test('image_base64 以文件头为准：声明成非图片类型的 PNG 字节照样上传成功', async () => {
+    await withFetch(null, async () => {
+        const body = await (await post({
+            jsonrpc: '2.0', id: 15, method: 'tools/call',
+            params: { name: 'upload_image', arguments: { image_base64: `data:application/vnd.openai.code-mode-image;base64,${PNG_BASE64}` } }
+        })).json();
+        assert.equal(body.result.isError, false);
+        assert.equal(body.result.structuredContent.content_type, 'image/png');
+    });
+
+    // 字节也不是图片时，报错要把模型引到 file 参数
+    await withFetch(null, async (calls) => {
+        const body = await (await post({
+            jsonrpc: '2.0', id: 16, method: 'tools/call',
+            params: { name: 'upload_image', arguments: { image_base64: `data:application/vnd.openai.code-mode-image;base64,${btoa('ref:img_123')}` } }
+        })).json();
+        assert.equal(body.result.isError, true);
+        assert.match(body.result.content[0].text, /file 参数/);
+        assert.equal(calls.length, 0);
+    });
 });
 
 test('tools/call 用 image_base64 上传成功，返回请求域名下的绝对 URL', async () => {
@@ -200,10 +325,15 @@ test('source_url 拒绝非 HTTPS、IP 直连、localhost 与本站域名，且�
     });
 });
 
-test('参数二选一：同时提供或都不提供时返回 isError 而不是 JSON-RPC 错误', async () => {
+test('参数三选一：多给或都不给时返回 isError 而不是 JSON-RPC 错误', async () => {
+    const file = { download_url: 'https://files.oai.test/a', file_id: 'file_abc' };
     const cases = [
         {},
         { source_url: 'https://cdn.test.example/a.png', image_base64: PNG_BASE64 },
+        { file, source_url: 'https://cdn.test.example/a.png' },
+        { file, image_base64: PNG_BASE64 },
+        // 坏 file 也占名额：不能悄悄退回去用 source_url
+        { file: 'oops', source_url: 'https://cdn.test.example/a.png' },
         { source_url: '   ' }
     ];
 
