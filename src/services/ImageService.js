@@ -626,7 +626,7 @@ export class ImageService {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PhotoFlare 管理后台</title>
-    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOSIgZmlsbD0iI2Y5NzMxNiIvPjxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjYiPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjEwIi8+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iNCIvPjwvZz48Y2lyY2xlIGN4PSIyMS43IiBjeT0iMTAuMyIgcj0iMS45IiBmaWxsPSIjZmZmIi8+PC9zdmc+">
+    <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOSIgZmlsbD0iIzNiODJmNiIvPjxnIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjYiPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjEwIi8+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iNCIvPjwvZz48Y2lyY2xlIGN4PSIyMS43IiBjeT0iMTAuMyIgcj0iMS45IiBmaWxsPSIjZmZmIi8+PC9zdmc+">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
         // 在首屏绘制前恢复主题，避免页面先闪过深色背景
@@ -648,7 +648,6 @@ export class ImageService {
         :root {
             color-scheme: dark;
             --primary: #3b82f6;
-            --brand: #f97316;
             --bg: #0f172a;
             --card-bg: rgba(30, 41, 59, 0.7);
             --text: #f8fafc;
@@ -677,7 +676,6 @@ export class ImageService {
         :root[data-theme="light"] {
             color-scheme: light;
             --primary: #2563eb;
-            --brand: #ea580c;
             --bg: #f4f7fb;
             --card-bg: rgba(255, 255, 255, 0.88);
             --text: #0f172a;
@@ -745,7 +743,7 @@ export class ImageService {
         }
 
         .logo-icon {
-            background: var(--brand);
+            background: var(--primary);
             padding: 6px;
             border-radius: 9px;
         }

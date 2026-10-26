@@ -148,12 +148,12 @@
     }
 
     /**
-     * PhotoFlare logo：纯橙圆角方块 + 镜头与耀斑，与图床后台、icons/logo.svg 一致
+     * PhotoFlare logo：纯蓝圆角方块 + 镜头与耀斑，与图床后台、icons/logo.svg 一致
      */
     function appIcon() {
         const s = (tag, attrs, children) => h(tag, attrs, children, SVG_NS);
         return s('svg', { viewBox: '0 0 32 32', 'aria-hidden': 'true' }, [
-            s('rect', { width: '32', height: '32', rx: '9', fill: '#f97316' }),
+            s('rect', { width: '32', height: '32', rx: '9', fill: '#3b82f6' }),
             s('g', { transform: 'translate(6 6) scale(0.8333)' }, [
                 s('circle', { cx: '12', cy: '12', r: '7.5', fill: 'none', stroke: '#fff', 'stroke-width': '2' }),
                 s('circle', { cx: '12', cy: '12', r: '3', fill: 'none', stroke: '#fff', 'stroke-width': '2' }),

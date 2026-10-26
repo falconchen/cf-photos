@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- 与图床后台 .logo-icon 一致：32px 纯橙圆角方块、圆角 9、内边距 6 -->
-  <rect width="32" height="32" rx="9" fill="#f97316"/>
+  <!-- 与图床后台 .logo-icon 一致：32px 纯蓝圆角方块、圆角 9、内边距 6 -->
+  <rect width="32" height="32" rx="9" fill="#3b82f6"/>
   <g transform="translate(6 6) scale(0.8333)">
     <circle cx="12" cy="12" r="7.5" fill="none" stroke="#fff" stroke-width="2"/>
     <circle cx="12" cy="12" r="3" fill="none" stroke="#fff" stroke-width="2"/>
