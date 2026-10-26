@@ -86,6 +86,21 @@ test('initialize 回显客户端支持的协议版本并声明 tools 能力', as
     assert.equal(body.result.protocolVersion, '2025-06-18');
     assert.deepEqual(body.result.capabilities.tools, {});
     assert.equal(body.result.serverInfo.name, 'cf-photos');
+    // 图标地址按请求源拼出，且该地址本身匿名可取
+    assert.deepEqual(body.result.serverInfo.icons, [
+        { src: 'https://photos.example.com/icon.png', mimeType: 'image/png', sizes: ['512x512'] }
+    ]);
+    assert.equal(body.result.serverInfo.websiteUrl, 'https://photos.example.com');
+});
+
+test('/icon.png 与 /favicon.ico 匿名返回 PNG', async () => {
+    for (const path of ['/icon.png', '/favicon.ico']) {
+        const response = await worker.fetch(new Request('https://photos.example.com' + path), env, {});
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('Content-Type'), 'image/png');
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        assert.deepEqual([...bytes.slice(0, 8)], [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    }
 });
 
 test('initialize 收到未知协议版本时回落到服务端最新版本而不报错', async () => {

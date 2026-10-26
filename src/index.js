@@ -10,6 +10,7 @@ import { McpService } from './services/McpService.js';
 import { OAuthService } from './services/OAuthService.js';
 import { UploadTicketService } from './services/UploadTicketService.js';
 import { AuthMiddleware } from './middleware/AuthMiddleware.js';
+import { ICON_PATH, iconResponse } from './assets/icon.js';
 
 /**
  * 缓冲式上传（multipart / JSON base64）的请求体上限。
@@ -85,6 +86,11 @@ export default {
         // /.well-known/* 必须在任何鉴权之前可匿名读取。
         if (OAuthService.owns(path)) {
             return await new OAuthService(env).handle(request, url);
+        }
+
+        // 应用图标：MCP initialize 的 serverInfo.icons 指向它，favicon.ico 顺带复用
+        if ((path === ICON_PATH || path === '/favicon.ico') && (request.method === 'GET' || request.method === 'HEAD')) {
+            return iconResponse();
         }
 
         // 首页：展示管理后台界面
@@ -248,6 +254,7 @@ export default {
 
             return await new McpService(imageService, {
                 maxBytes: MAX_BUFFERED_UPLOAD,
+                origin: url.origin,
                 uploadTickets: new UploadTicketService(imageService, env)
             }).handle(request);
         }

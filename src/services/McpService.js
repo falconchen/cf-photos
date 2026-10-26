@@ -10,6 +10,8 @@
  * 等现代纪元客户端普及后再补，不要因为看到新版规范就以为这里写错了。
  */
 
+import { ICON_PATH, ICON_SIZE } from '../assets/icon.js';
+
 // 对外声明的协议版本，以及能原样回显的版本
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
@@ -123,6 +125,7 @@ export class McpService {
      * @param {number} [options.maxBytes] 单张图片字节上限
      * @param {string} [options.version] serverInfo.version
      * @param {UploadTicketService} [options.uploadTickets] 一次性上传地址的签发方，没有时 create_upload_url 报错
+     * @param {string} [options.origin] 本站源，用来拼 serverInfo.icons / websiteUrl，没有时省略这两项
      */
     constructor(imageService, options = {}) {
         this.imageService = imageService;
@@ -132,6 +135,7 @@ export class McpService {
         this.maxBytes = options.maxBytes || 20 * 1024 * 1024;
         this.version = options.version || '1.0.0';
         this.uploadTickets = options.uploadTickets || null;
+        this.origin = options.origin || null;
     }
 
     /**
@@ -235,7 +239,12 @@ export class McpService {
             serverInfo: {
                 name: 'cf-photos',
                 title: 'cf-photos 图床',
-                version: this.version
+                version: this.version,
+                // icons / websiteUrl 是 2025-11-25 加进 Implementation 的字段，旧版本客户端会忽略
+                ...(this.origin && {
+                    icons: [{ src: this.origin + ICON_PATH, mimeType: 'image/png', sizes: [ICON_SIZE] }],
+                    websiteUrl: this.origin
+                })
             },
             instructions: '本服务器把图片上传到图床并返回公开可访问的 URL。upload_image 接收文件参数或公网地址，不接受 base64；文件在能执行命令并联网的环境里时，用 create_upload_url 获取一次性地址再用 curl 上传。'
         };
