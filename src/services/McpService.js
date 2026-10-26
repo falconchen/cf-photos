@@ -38,11 +38,14 @@ const UPLOAD_IMAGE_TOOL = {
         '把一张图片上传到本图床，返回可以直接公开访问的图片 URL。',
         '',
         '必须且只能提供下面两个参数中的一个：',
-        '- file：对话里的图片文件（用户上传的、或你生成的）。客户端支持文件参数时（如 ChatGPT）用它。',
+        '- file：对话里的图片文件。在 ChatGPT 里优先用它，只需填对话里那张图片文件的 ID，平台会在调用前自动换成包含下载地址的对象，所以你看到 file 是字符串类型属于正常，不是接口不一致。',
+        '  能用的文件：用户上传到对话里的图片、用图像生成功能生成的图片。',
+        '  不能用的文件：你在代码执行环境（Python 沙箱，例如 /mnt/data/ 下）里用代码画出或保存的图片，平台不会替换它，调用会失败。需要新图时请用图像生成功能，不要用代码画。',
         '- source_url：图片的公网 HTTPS 地址，由服务端自行下载。当用户给出的是一个网址时用它。',
         '',
         '本工具不接受 base64，不要尝试把图片编码后传入。',
-        '如果两个参数都用不了，但文件在你能执行命令、并且能联网的环境里（例如 claude.ai 代码执行环境里的 /mnt/user-data/uploads/，或 Claude Code 能访问的本地文件），改用 create_upload_url 工具。',
+        '在 ChatGPT 里不要改用 create_upload_url 或 curl：ChatGPT 的代码执行环境不能联网，那条路必然失败。',
+        '只有在 file 与 source_url 都用不了、而文件在你能执行命令并且能联网的环境里时（例如 claude.ai 代码执行环境里的 /mnt/user-data/uploads/，或 Claude Code 能访问的本地文件），才改用 create_upload_url 工具。',
         '',
         '支持 JPEG / PNG / GIF / WebP / AVIF / HEIC / BMP / TIFF / ICO，单张不超过 20 MB。出于安全考虑不接受 SVG。',
         'source_url 只接受公网 HTTPS 域名地址，不接受 IP 直连、内网地址、localhost，也不跟随重定向。',
@@ -56,7 +59,7 @@ const UPLOAD_IMAGE_TOOL = {
             // 刻意内联而不是 $defs + $ref：不是每个客户端转换 schema 时都会解引用。
             file: {
                 type: 'object',
-                description: '对话里的图片文件，由客户端填入临时下载地址；与 source_url 二选一',
+                description: '对话里的图片文件（用户上传的或图像生成功能生成的，不能是代码执行环境里画出的文件），由客户端在调用前换成临时下载地址；与 source_url 二选一',
                 properties: {
                     download_url: { type: 'string' },
                     file_id: { type: 'string' },
@@ -93,6 +96,7 @@ const CREATE_UPLOAD_URL_TOOL = {
         '为一个本地文件签发一次性上传地址。适用于：文件就在你能执行命令、并且能联网的环境里，',
         '例如 claude.ai 代码执行环境里用户上传的文件（通常在 /mnt/user-data/uploads/ 下），或 Claude Code 能访问的本地文件。',
         '字节由 curl 直接传给图床，不经过对话。本服务器不接受 base64 上传，不要尝试。',
+        '不适用于 ChatGPT：ChatGPT 的代码执行环境不能联网，curl 必然失败。在 ChatGPT 里请用 upload_image 的 file 参数。',
         '',
         '用法：',
         '1. 用文件名调用本工具，例如 file_name: "photo.png"。后缀决定存储类型，支持图片、视频与音频，不接受 SVG。',
@@ -246,7 +250,7 @@ export class McpService {
                     websiteUrl: this.origin
                 })
             },
-            instructions: '本服务器把图片上传到图床并返回公开可访问的 URL。upload_image 接收文件参数或公网地址，不接受 base64；文件在能执行命令并联网的环境里时，用 create_upload_url 获取一次性地址再用 curl 上传。'
+            instructions: '本服务器把图片上传到图床并返回公开可访问的 URL。upload_image 接收文件参数或公网地址，不接受 base64。在 ChatGPT 里用 upload_image 的 file 参数，文件须是用户上传的或图像生成功能生成的图片，不能是代码执行环境里画出的文件，也不要改用 curl。文件在能执行命令并联网的环境里时（如 claude.ai、Claude Code），用 create_upload_url 获取一次性地址再用 curl 上传。'
         };
     }
 
@@ -347,7 +351,7 @@ export class McpService {
         // 却又是模型最爱的退路。缓存着旧工具表的客户端还会传它，所以显式拦下并指路，
         // 而不是当成未知参数默默忽略、再报一句让人摸不着头脑的「缺少参数」。
         if (args.image_base64 !== undefined) {
-            return this._toolError('本服务器已不再接受 image_base64。请改用：file（对话里的文件，客户端支持文件参数时）、source_url（公网地址），或者在能执行命令并联网的环境里调用 create_upload_url 获取一次性地址后用 curl 上传。');
+            return this._toolError('本服务器已不再接受 image_base64。请改用：file（对话里的文件，客户端支持文件参数时，如 ChatGPT）、source_url（公网地址），或者在能执行命令并联网的环境里（ChatGPT 不适用）调用 create_upload_url 获取一次性地址后用 curl 上传。');
         }
 
         // file 只看「有没有给」，不看内容是否合法：给了个坏对象也算占了一个名额，
@@ -368,7 +372,10 @@ export class McpService {
             if (typeof file !== 'object' || Array.isArray(file) ||
                 typeof file.download_url !== 'string' || file.download_url.trim() === '' ||
                 typeof file.file_id !== 'string' || file.file_id.trim() === '') {
-                return this._toolError('file 必须是包含 download_url 与 file_id 两个字符串字段的对象。');
+                // ChatGPT 没替换文件参数时，模型写的文件 ID 字符串会原样到这里。实测原因是所选文件
+                // 不是平台认可的对话文件（如 Python 沙箱里画出的图），所以报错要把模型引回正确的来源，
+                // 而不是让它退回 create_upload_url——ChatGPT 的沙箱不能联网，那条路必然失败。
+                return this._toolError('file 没有被客户端换成包含 download_url 与 file_id 两个字符串字段的对象。在 ChatGPT 里这通常说明所选文件不是可以发给应用的对话文件，例如在代码执行环境里用代码画出的图片。请改用用户上传的图片，或用图像生成功能重新生成后再传 file；不要改用 curl 或 create_upload_url。');
             }
             const hint = typeof file.mime_type === 'string' ? file.mime_type : '';
             image = await this._fetchRemoteImage(file.download_url.trim(), selfHost, { label: 'file.download_url', sniff: true, hint: hint });

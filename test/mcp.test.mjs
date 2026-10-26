@@ -234,6 +234,9 @@ test('file 参数：认不出的内容、SVG、坏对象与被拦地址都返回
         const { result, calls } = await call(null, bad);
         assert.equal(result.isError, true, JSON.stringify(bad));
         assert.match(result.content[0].text, /download_url 与 file_id/);
+        // ChatGPT 没替换文件参数时，报错要把模型引回正确的文件来源，而不是退回 curl
+        assert.match(result.content[0].text, /图像生成功能/);
+        assert.match(result.content[0].text, /不要改用 curl/);
         assert.equal(calls.length, 0);
     }
 });
