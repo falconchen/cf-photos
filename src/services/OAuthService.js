@@ -65,9 +65,9 @@ const CORS_HEADERS = {
     'Access-Control-Max-Age': '86400'
 };
 
-// 允许把授权码送达的主机：Claude 各端与 ChatGPT。这是全套流程里最吃紧的一道防线，
+// 允许把授权码送达的主机：Claude 各端、ChatGPT 与 Antigravity。这是全套流程里最吃紧的一道防线，
 // 见下面 isAllowedRedirect 的说明。
-const ALLOWED_REDIRECT_HOSTS = new Set(['claude.ai', 'claude.com', 'chatgpt.com']);
+const ALLOWED_REDIRECT_HOSTS = new Set(['claude.ai', 'claude.com', 'chatgpt.com', 'antigravity.google']);
 
 const encoder = new TextEncoder();
 
@@ -498,7 +498,7 @@ export class OAuthService {
             if (typeof uri !== 'string' || !isAllowedRedirect(uri)) {
                 return this._oauthError(
                     'invalid_redirect_uri',
-                    `回调地址不在白名单内：${uri}。只接受 https://claude.ai、https://claude.com 与本机回环地址`
+                    `回调地址不在白名单内：${uri}。只接受 https://claude.ai、https://claude.com、https://chatgpt.com、https://antigravity.google 与本机回环地址`
                 );
             }
         }

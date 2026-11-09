@@ -167,10 +167,11 @@ test('未授权的 /mcp 401 带 resource_metadata 指针', async () => {
     );
 });
 
-test('注册接受 ChatGPT 的两种回调形态', async () => {
+test('注册接受 ChatGPT 与 Antigravity 的回调地址', async () => {
     for (const uri of [
         'https://chatgpt.com/connector_platform_oauth_redirect',
-        'https://chatgpt.com/connector/oauth/abc123'
+        'https://chatgpt.com/connector/oauth/abc123',
+        'https://antigravity.google/oauth-callback'
     ]) {
         assert.ok(await register([uri]), `应接受 ${uri}`);
     }
